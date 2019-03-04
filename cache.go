@@ -14,6 +14,7 @@ func (cls *Cache) GetObject(tableName string) *CacheContainer{
 	}else {
 		m := newContainer(tableName)
 		m.storage = cls.storage
+		m.config = cls.config
 		cls.containers[tableName] = m
 		return m
 	}

@@ -8,6 +8,7 @@ import (
 
 type CacheContainer struct {
 	storage   *MySQL
+	config    Config
 	tableName string
 	items     map[string]interface{}
 	w         chan interface{}
@@ -61,8 +62,8 @@ type EmbedME struct {
 
 func (cls *EmbedME)Inc(a interface{}){
 	cls.updates ++
-	if cls.updates > 2 {
-		cls.Container.w <- a 		//TODO enable me
+	if cls.updates > cls.Container.config.CacheWriteLatencyCount {
+		cls.Container.w <- a
 	}
 }
 
