@@ -41,7 +41,7 @@ func (cls *MySQL) Get(tableName string, key string, o interface{}) {
 		f := t.Field(i)
 		if tag := f.Tag.Get("mysql"); tag != "" {
 			m[tag] = f.Name
-		}else {
+		} else {
 			m[f.Name] = f.Name
 		}
 	}
@@ -67,7 +67,7 @@ func (cls *MySQL) Get(tableName string, key string, o interface{}) {
 
 	for rows.Next() {
 
-		for i:= range columns {
+		for i := range columns {
 			valuePtrs[i] = &values[i]
 		}
 
@@ -85,22 +85,33 @@ func (cls *MySQL) Get(tableName string, key string, o interface{}) {
 
 			//fmt.Println(col, v)
 			if elem.Kind() == reflect.Struct {
-				if c2, ok:= m[col]; ok{
+				if c2, ok := m[col]; ok {
 					//fmt.Println("***", c2)
 					f := elem.FieldByName(c2)
 					if f.IsValid() && f.CanSet() {
-						//f.Set(reflect.ValueOf(v))
+						f.Set(reflect.ValueOf(v))
+						//if f.Kind() == reflect.Int {
+						//	fmt.Println(f.Kind())
+						//	x := v.(int64)
+						//	if !f.OverflowInt(x) {
+						//		f.SetInt(x)
+						//	}
+						//} else {
+						//	fmt.Println(f.Kind())
+						//	f.Set(reflect.ValueOf(v))
+						//}
+
 						//fmt.Println(f.Kind())
-						if f.Kind() == reflect.String {
-							f.SetString(v.(string))
-						}else if f.Kind() == reflect.Int{
-							x := v.(int64)
-							if !f.OverflowInt(x) {
-								f.SetInt(x)
-							}
-						}else if f.Kind() == reflect.Struct{
-							f.Set(reflect.ValueOf(v))
-						}
+						//if f.Kind() == reflect.String {
+						//	f.SetString(v.(string))
+						//}else if f.Kind() == reflect.Int{
+						//	x := v.(int64)
+						//	if !f.OverflowInt(x) {
+						//		f.SetInt(x)
+						//	}
+						//}else if f.Kind() == reflect.Struct{
+						//	f.Set(reflect.ValueOf(v))
+						//}
 
 					}
 				}
@@ -117,7 +128,6 @@ func (cls *MySQL) Update(tableName string, key string, in interface{}) {
 	condField := ""
 	var condVal interface{}
 	valuePtrs := make([]interface{}, 0)
-	www:=0
 
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
@@ -131,18 +141,17 @@ func (cls *MySQL) Update(tableName string, key string, in interface{}) {
 			}
 			zz := elem.FieldByName(f.Name)
 			if zz.IsValid(){
+				valuePtrs = append(valuePtrs, zz.Interface())
 				//fmt.Println("KKKKKKKKKKKK ", zz.Kind())
-				//valuePtrs = append(valuePtrs, zz.Interface())
-				if zz.Kind() == reflect.String {
-					valuePtrs = append(valuePtrs, zz.String())
-				}else if zz.Kind() == reflect.Int{
-					valuePtrs = append(valuePtrs, zz.Int())
-				}else if zz.Kind() == reflect.Struct{
-					valuePtrs = append(valuePtrs, zz.Interface())
-				}
+				//if zz.Kind() == reflect.String {
+				//	valuePtrs = append(valuePtrs, zz.String())
+				//}else if zz.Kind() == reflect.Int{
+				//	valuePtrs = append(valuePtrs, zz.Int())
+				//}else if zz.Kind() == reflect.Struct{
+				//	valuePtrs = append(valuePtrs, zz.Interface())
+				//}
 			}
 			setStr = fmt.Sprintf("%s, %s = ?", setStr, fName)
-			www++
 		}else if f.Tag.Get("cwbKey") == "1" {
 			fName := f.Name
 			if tag := f.Tag.Get("mysql"); tag != "" {
@@ -151,11 +160,12 @@ func (cls *MySQL) Update(tableName string, key string, in interface{}) {
 			condField = fName
 			zz := elem.FieldByName(f.Name)
 			if zz.IsValid(){
-				if zz.Kind() == reflect.String {
-					condVal = zz.String()
-				}else if zz.Kind() == reflect.Int{
-					condVal = zz.Int()
-				}
+				condVal = zz.Interface()
+				//if zz.Kind() == reflect.String {
+				//	condVal = zz.String()
+				//}else if zz.Kind() == reflect.Int{
+				//	condVal = zz.Int()
+				//}
 			}
 		}
 	}
@@ -165,9 +175,9 @@ func (cls *MySQL) Update(tableName string, key string, in interface{}) {
 	}
 
 	valuePtrs = append(valuePtrs, condVal)
-	//fmt.Println("**********", setStr)
-	fmt.Println("**********", valuePtrs)
-	//fmt.Println("**********", condField, condVal)
+	////fmt.Println("**********", setStr)
+	//fmt.Println("**********", valuePtrs)
+	////fmt.Println("**********", condField, condVal)
 
 	if condField == ""{
 		panic("can't find cwbKey")  		// TODO fix message
@@ -175,7 +185,7 @@ func (cls *MySQL) Update(tableName string, key string, in interface{}) {
 
 	cls.CheckConnection()
 	q := fmt.Sprintf("UPDATE %s SET %s WHERE %s = ?", tableName, setStr, condField)
-	fmt.Println(q)
+	//fmt.Println(q)
 	stmt, err := cls.mysqlDB.Prepare(q)
 	if err != nil {
 		panic(err)

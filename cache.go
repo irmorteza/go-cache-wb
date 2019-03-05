@@ -8,11 +8,11 @@ type Cache struct {
 	Manager    CacheManager
 }
 
-func (cls *Cache) GetObject(tableName string) *CacheContainer{
+func (cls *Cache) GetObject(tableName string, objType interface{}) *CacheContainer{
 	if item, ok:= cls.containers[tableName]; ok {
 		return item
 	}else {
-		m := newContainer(tableName)
+		m := newContainer(tableName, objType)
 		m.storage = cls.storage
 		m.config = cls.config
 		cls.containers[tableName] = m
