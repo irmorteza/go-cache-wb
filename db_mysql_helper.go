@@ -21,15 +21,19 @@ func newMySQL(cfg Config) *MySQL {
 }
 
 func (cls *MySQL) CheckConnection() {
+	cfg, ok := cls.cfg.Database.(ConfigMysql)
+	if !ok {
+		panic("MySQL configs, are not correct, Please check configs")
+	}
+
 	if cls.mysqlDB == nil {
-		qs := cls.cfg.Username + ":" + cls.cfg.Password + "@tcp(" + cls.cfg.Host + ":" + strconv.Itoa(cls.cfg.Port) + ")/" + cls.cfg.DBName + "?parseTime=true"
+		qs := cfg.Username + ":" + cfg.Password + "@tcp(" + cfg.Host + ":" + strconv.Itoa(cfg.Port) + ")/" + cfg.DBName + "?parseTime=true"
 		var err error
 		cls.mysqlDB, err = sql.Open("mysql", qs)
 		if err != nil {
 			panic(err.Error()) // Just for example purpose. You should use proper error handling instead of panic
 		}
-		cls.mysqlDB.SetMaxOpenConns(cls.cfg.MaxOpenConnection)
-
+		cls.mysqlDB.SetMaxOpenConns(cfg.MaxOpenConnection)
 	}
 }
 
@@ -83,36 +87,12 @@ func (cls *MySQL) Get(tableName string, key string, o interface{}) {
 				v = val
 			}
 
-			//fmt.Println(col, v)
 			if elem.Kind() == reflect.Struct {
 				if c2, ok := m[col]; ok {
 					//fmt.Println("***", c2)
 					f := elem.FieldByName(c2)
 					if f.IsValid() && f.CanSet() {
 						f.Set(reflect.ValueOf(v))
-						//if f.Kind() == reflect.Int {
-						//	fmt.Println(f.Kind())
-						//	x := v.(int64)
-						//	if !f.OverflowInt(x) {
-						//		f.SetInt(x)
-						//	}
-						//} else {
-						//	fmt.Println(f.Kind())
-						//	f.Set(reflect.ValueOf(v))
-						//}
-
-						//fmt.Println(f.Kind())
-						//if f.Kind() == reflect.String {
-						//	f.SetString(v.(string))
-						//}else if f.Kind() == reflect.Int{
-						//	x := v.(int64)
-						//	if !f.OverflowInt(x) {
-						//		f.SetInt(x)
-						//	}
-						//}else if f.Kind() == reflect.Struct{
-						//	f.Set(reflect.ValueOf(v))
-						//}
-
 					}
 				}
 			}
@@ -142,14 +122,6 @@ func (cls *MySQL) Update(tableName string, key string, in interface{}) {
 			zz := elem.FieldByName(f.Name)
 			if zz.IsValid(){
 				valuePtrs = append(valuePtrs, zz.Interface())
-				//fmt.Println("KKKKKKKKKKKK ", zz.Kind())
-				//if zz.Kind() == reflect.String {
-				//	valuePtrs = append(valuePtrs, zz.String())
-				//}else if zz.Kind() == reflect.Int{
-				//	valuePtrs = append(valuePtrs, zz.Int())
-				//}else if zz.Kind() == reflect.Struct{
-				//	valuePtrs = append(valuePtrs, zz.Interface())
-				//}
 			}
 			setStr = fmt.Sprintf("%s, %s = ?", setStr, fName)
 		}else if f.Tag.Get("cwbKey") == "1" {
@@ -161,11 +133,6 @@ func (cls *MySQL) Update(tableName string, key string, in interface{}) {
 			zz := elem.FieldByName(f.Name)
 			if zz.IsValid(){
 				condVal = zz.Interface()
-				//if zz.Kind() == reflect.String {
-				//	condVal = zz.String()
-				//}else if zz.Kind() == reflect.Int{
-				//	condVal = zz.Int()
-				//}
 			}
 		}
 	}
@@ -185,7 +152,6 @@ func (cls *MySQL) Update(tableName string, key string, in interface{}) {
 
 	cls.CheckConnection()
 	q := fmt.Sprintf("UPDATE %s SET %s WHERE %s = ?", tableName, setStr, condField)
-	//fmt.Println(q)
 	stmt, err := cls.mysqlDB.Prepare(q)
 	if err != nil {
 		panic(err)

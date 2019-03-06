@@ -18,16 +18,20 @@ func (cls *Cache) GetObject(tableName string, objType interface{}) *CacheContain
 	}
 }
 
-type Config struct {
-	Interval               int
+type ConfigMysql struct {
 	Host                   string
 	Username               string
 	Password               string
 	Port                   int
 	DBName                 string
 	MaxOpenConnection      int
+}
+
+type Config struct {
+	Interval               int
 	CacheWriteLatencyTime  int
 	CacheWriteLatencyCount int
+	Database               interface{}
 }
 
 func NewCacheWB(cfg Config) *Cache  {
