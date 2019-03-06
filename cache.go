@@ -1,11 +1,9 @@
 package cachewb
 
-import "time"
 type Cache struct {
 	containers map[string]*CacheContainer
 	config     Config
 	storage    *MySQL
-	Manager    CacheManager
 }
 
 func (cls *Cache) GetObject(tableName string, objType interface{}) *CacheContainer{
@@ -37,7 +35,5 @@ func NewCacheWB(cfg Config) *Cache  {
 	s.config = cfg
 	s.containers = make(map[string]*CacheContainer)
 	s.storage = newMySQL(cfg)
-	//stor = newMySQL(cfg)
-	s.Manager.interval = time.Second * time.Duration(cfg.Interval)
 	return s
 }
