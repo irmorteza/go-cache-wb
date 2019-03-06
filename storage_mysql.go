@@ -9,34 +9,32 @@ import (
 	"strings"
 )
 
-type MySQL struct {
-	mysqlDB  *sql.DB
-	cfg      Config
-
+type ConfigMysql struct {
+	Host                   string
+	Username               string
+	Password               string
+	Port                   int
+	DBName                 string
+	MaxOpenConnection      int
 }
 
-func newMySQL(cfg Config) *MySQL {
-	db := &MySQL{cfg:cfg}
-	return db
+type MySQL struct {
+	mysqlDB  *sql.DB
+	cfg      ConfigMysql
+
 }
 
 func (cls *MySQL) CheckConnection() {
-	cfg, ok := cls.cfg.Database.(ConfigMysql)
-	if !ok {
-		panic("MySQL configs, are not correct, Please check configs")
-	}
-
 	if cls.mysqlDB == nil {
-		qs := cfg.Username + ":" + cfg.Password + "@tcp(" + cfg.Host + ":" + strconv.Itoa(cfg.Port) + ")/" + cfg.DBName + "?parseTime=true"
+		qs := cls.cfg.Username + ":" + cls.cfg.Password + "@tcp(" + cls.cfg.Host + ":" + strconv.Itoa(cls.cfg.Port) + ")/" + cls.cfg.DBName + "?parseTime=true"
 		var err error
 		cls.mysqlDB, err = sql.Open("mysql", qs)
 		if err != nil {
 			panic(err.Error()) // Just for example purpose. You should use proper error handling instead of panic
 		}
-		cls.mysqlDB.SetMaxOpenConns(cfg.MaxOpenConnection)
+		cls.mysqlDB.SetMaxOpenConns(cls.cfg.MaxOpenConnection)
 	}
 }
-
 
 func (cls *MySQL) Get(tableName string, key string, o interface{}) {
 	m := make(map[string]string)

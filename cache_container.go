@@ -8,7 +8,7 @@ import (
 )
 
 type CacheContainer struct {
-	storage   *MySQL
+	storage   Storage
 	config    Config
 	tableName string
 	TempTime time.Time
@@ -18,8 +18,10 @@ type CacheContainer struct {
 	sync.RWMutex
 }
 
-func newContainer(tbl string, containerType interface{}) *CacheContainer {
+func newContainer(tbl string, cfg Config, containerType interface{}) *CacheContainer {
 	var m CacheContainer
+	m.config = cfg
+	m.storage = newStorage(cfg)
 	m.tableName = tbl
 	m.w = make(chan interface{})
 	m.items = make(map[string]interface{})

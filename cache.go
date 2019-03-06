@@ -3,34 +3,23 @@ package cachewb
 type Cache struct {
 	containers map[string]*CacheContainer
 	config     Config
-	storage    *MySQL
 }
 
 func (cls *Cache) GetObject(tableName string, objType interface{}) *CacheContainer{
 	if item, ok:= cls.containers[tableName]; ok {
 		return item
 	}else {
-		m := newContainer(tableName, objType)
-		m.storage = cls.storage
-		m.config = cls.config
+		m := newContainer(tableName, cls.config, objType)
 		cls.containers[tableName] = m
 		return m
 	}
-}
-
-type ConfigMysql struct {
-	Host                   string
-	Username               string
-	Password               string
-	Port                   int
-	DBName                 string
-	MaxOpenConnection      int
 }
 
 type Config struct {
 	Interval               int
 	CacheWriteLatencyTime  int
 	CacheWriteLatencyCount int
+	StorageName                  StorageKind
 	Database               interface{}
 }
 
@@ -38,6 +27,5 @@ func NewCacheWB(cfg Config) *Cache  {
 	s := &Cache{}
 	s.config = cfg
 	s.containers = make(map[string]*CacheContainer)
-	s.storage = newMySQL(cfg)
 	return s
 }
