@@ -109,6 +109,11 @@ func (cls *CacheContainer)Get(value string)(interface{}) {
 	}
 }
 
+func (cls *CacheContainer)Insert(in interface{})(interface{}) {
+	res := cls.storage.Insert(in)
+	return res
+}
+
 type EmbedME struct {
 	Container   *CacheContainer
 	Parent   interface{}

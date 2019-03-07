@@ -3,6 +3,7 @@ package cachewb
 type Storage interface {
 	Get(key string) interface{}
 	Update(in interface{})
+	Insert(in interface{}) interface{}
 }
 
 type StorageKind uint

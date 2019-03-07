@@ -58,7 +58,13 @@ func (cls *MySQL) ParseTemplate() {
 				cls.updateQueryFields = append(cls.updateQueryFields, f.Name)
 				setClause = fmt.Sprintf("%s, %s = ?", setClause, tag)
 			}
-
+			if f.Tag.Get("insert") != "0" {
+				if f.Tag.Get("autoInc") != "1" {
+					cls.insertQueryFields = append(cls.insertQueryFields, f.Name)
+					val1 = fmt.Sprintf("%s, %s", val1, tag)
+					val2 = fmt.Sprintf("%s, ?", val2)
+				}
+			}
 		} //else {		if had not storage
 		//	cls.fieldsMap[f.Name] = f.Name
 		//}
@@ -171,4 +177,32 @@ func (cls *MySQL) Update(in interface{}) {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func (cls *MySQL) Insert(in interface{}) interface{}{
+	elem := reflect.ValueOf(in)
+
+	valuePtrs := make([]interface{}, 0)
+
+	for _, n:=range cls.insertQueryFields {
+		zz := elem.FieldByName(n)
+		if zz.IsValid(){
+			valuePtrs = append(valuePtrs, zz.Interface())
+		}
+	}
+	fmt.Println(valuePtrs)
+	cls.CheckConnection()
+	stmt, err := cls.mysqlDB.Prepare(cls.insertQuery)
+	if err != nil {
+		panic(err)
+	}
+	defer stmt.Close()
+	res, err := stmt.Exec(valuePtrs...)
+	if err != nil {
+		panic(err)
+	}
+	m := make(map[string]interface{})
+	m["LastInsertId"], _ = res.LastInsertId()
+	m["RowsAffected"], _ = res.RowsAffected()
+	return m
 }
