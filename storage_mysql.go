@@ -19,8 +19,71 @@ type ConfigMysql struct {
 }
 
 type MySQL struct {
-	mysqlDB  *sql.DB
-	cfg      ConfigMysql
+	mysqlDB           *sql.DB
+	itemTemplate      interface{}
+	fieldsMap         map[string]string
+	tableName         string
+	updateQuery       string
+	updateQueryFields []string
+	insertQuery       string
+	insertQueryFields []string
+	cfg               ConfigMysql
+}
+
+func newMySQL(tableName string, cfg ConfigMysql, itemTemplate interface{})  *MySQL{
+	m := &MySQL{cfg: cfg, tableName:tableName}
+	m.itemTemplate = itemTemplate
+	m.ParseTemplate()
+	return m
+}
+
+func (cls *MySQL) ParseTemplate() {
+	// create map field
+	setClause := ""
+	whereClause := ""
+	whereFieldName := ""
+	val1 := ""
+	val2 := ""
+	cls.fieldsMap = make(map[string]string)
+	t := reflect.TypeOf(cls.itemTemplate)
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if tag := f.Tag.Get("storage"); tag != "" {
+			cls.fieldsMap[tag] = f.Name
+
+			if f.Tag.Get("updateKey") == "1" {
+				whereFieldName = f.Name
+				whereClause = fmt.Sprintf("%s = ?", tag)
+			} else if f.Tag.Get("update") != "0" {
+				cls.updateQueryFields = append(cls.updateQueryFields, f.Name)
+				setClause = fmt.Sprintf("%s, %s = ?", setClause, tag)
+			}
+
+		} //else {		if had not storage
+		//	cls.fieldsMap[f.Name] = f.Name
+		//}
+	}
+
+	// create update query
+	if whereFieldName == ""{
+		panic("Can't find updateKey")  		// TODO fix message
+	}
+
+	cls.updateQueryFields = append(cls.updateQueryFields, whereFieldName)
+	if len(setClause) > 0 && strings.HasPrefix(setClause, ", "){
+		setClause = setClause [2:]
+	}
+	if len(val1) > 0 && strings.HasPrefix(val1, ", "){
+		val1 = val1 [2:]
+		val2 = val2 [2:]
+	}
+	cls.updateQuery = fmt.Sprintf("UPDATE %s SET %s WHERE %s;", cls.tableName, setClause, whereClause)
+	cls.insertQuery = fmt.Sprintf("INSERT INTO %s (%s) values (%s);", cls.tableName, val1, val2)
+
+	fmt.Println(cls.updateQuery)
+	fmt.Println(cls.updateQueryFields)
+	fmt.Println(cls.insertQuery)
+	fmt.Println(cls.insertQueryFields)
 
 }
 
@@ -36,23 +99,12 @@ func (cls *MySQL) CheckConnection() {
 	}
 }
 
-func (cls *MySQL) Get(tableName string, key string, o interface{}) {
-	m := make(map[string]string)
-	t := reflect.TypeOf(o).Elem()
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
-		if tag := f.Tag.Get("mysql"); tag != "" {
-			m[tag] = f.Name
-		} else {
-			m[f.Name] = f.Name
-		}
-	}
-	elem := reflect.ValueOf(o).Elem()
-
+func (cls *MySQL) Get(key string) interface{}{
+	val := reflect.New(reflect.TypeOf(cls.itemTemplate))
+	elem := val.Elem()
 	cls.CheckConnection()
 
-	stmt, err := cls.mysqlDB.Prepare(fmt.Sprintf("SELECT * from %s where name = ? ;", tableName))
-
+	stmt, err := cls.mysqlDB.Prepare(fmt.Sprintf("SELECT * from %s where name = ? ;", cls.tableName))
 	if err != nil {
 		panic(err)
 	}
@@ -86,8 +138,7 @@ func (cls *MySQL) Get(tableName string, key string, o interface{}) {
 			}
 
 			if elem.Kind() == reflect.Struct {
-				if c2, ok := m[col]; ok {
-					//fmt.Println("***", c2)
+				if c2, ok := cls.fieldsMap[col]; ok {
 					f := elem.FieldByName(c2)
 					if f.IsValid() && f.CanSet() {
 						f.Set(reflect.ValueOf(v))
@@ -96,61 +147,22 @@ func (cls *MySQL) Get(tableName string, key string, o interface{}) {
 			}
 		}
 	}
+	return val.Interface()
 }
 
-func (cls *MySQL) Update(tableName string, key string, in interface{}) {
-	t := reflect.TypeOf(in).Elem()
+func (cls *MySQL) Update(in interface{}) {
 	elem := reflect.ValueOf(in).Elem()
 
-	setStr := ""
-	condField := ""
-	var condVal interface{}
 	valuePtrs := make([]interface{}, 0)
 
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
-		if f.Tag.Get("cwb") == "1" && f.Tag.Get("cwbKey") == "1"{
-			panic("can't have both cwb and cwbKey")  		// TODO fix message
-		}
-		if f.Tag.Get("cwb") == "1" {
-			fName := f.Name
-			if tag := f.Tag.Get("mysql"); tag != "" {
-				fName = tag
-			}
-			zz := elem.FieldByName(f.Name)
-			if zz.IsValid(){
-				valuePtrs = append(valuePtrs, zz.Interface())
-			}
-			setStr = fmt.Sprintf("%s, %s = ?", setStr, fName)
-		}else if f.Tag.Get("cwbKey") == "1" {
-			fName := f.Name
-			if tag := f.Tag.Get("mysql"); tag != "" {
-				fName = tag
-			}
-			condField = fName
-			zz := elem.FieldByName(f.Name)
-			if zz.IsValid(){
-				condVal = zz.Interface()
-			}
+	for _, n:=range cls.updateQueryFields {
+		zz := elem.FieldByName(n)
+		if zz.IsValid(){
+			valuePtrs = append(valuePtrs, zz.Interface())
 		}
 	}
-
-	if len(setStr) > 0 && strings.HasPrefix(setStr, ", "){
-		setStr = setStr [2:]
-	}
-
-	valuePtrs = append(valuePtrs, condVal)
-	////fmt.Println("**********", setStr)
-	//fmt.Println("**********", valuePtrs)
-	////fmt.Println("**********", condField, condVal)
-
-	if condField == ""{
-		panic("can't find cwbKey")  		// TODO fix message
-	}
-
 	cls.CheckConnection()
-	q := fmt.Sprintf("UPDATE %s SET %s WHERE %s = ?", tableName, setStr, condField)
-	stmt, err := cls.mysqlDB.Prepare(q)
+	stmt, err := cls.mysqlDB.Prepare(cls.updateQuery)
 	if err != nil {
 		panic(err)
 	}

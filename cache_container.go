@@ -8,24 +8,24 @@ import (
 )
 
 type CacheContainer struct {
-	storage   Storage
-	config    Config
-	tableName string
+	storage  Storage
+	config   Config
+	name     string // table name
 	TempTime time.Time
-	itemType  interface{}
-	items     map[string]interface{}
-	w         chan interface{}
+	itemType interface{}
+	items    map[string]interface{}
+	w        chan interface{}
 	sync.RWMutex
 }
 
 func newContainer(tbl string, cfg Config, containerType interface{}) *CacheContainer {
 	var m CacheContainer
-	m.config = cfg
-	m.storage = newStorage(cfg)
-	m.tableName = tbl
-	m.w = make(chan interface{})
-	m.items = make(map[string]interface{})
 	m.itemType = containerType
+	m.config = cfg
+	m.name = tbl
+	m.storage = newStorage(tbl, cfg, containerType)
+	m.items = make(map[string]interface{})
+	m.w = make(chan interface{})
 	m.setManager()
 	return &m
 }
@@ -87,10 +87,9 @@ func (cls *CacheContainer)Get(value string)(interface{}) {
 	if item, ok := cls.getByLock(value); ok {
 		return item
 	} else {
-		val := reflect.New(reflect.TypeOf(cls.itemType))
-		obj := val.Interface()
+		res := cls.storage.Get(value)
+		elem := reflect.ValueOf(res).Elem()
 
-		elem := val.Elem()
 		if elem.Kind() == reflect.Struct {
 			f := elem.FieldByName("Container")
 			if f.IsValid() && f.CanSet() {
@@ -100,14 +99,13 @@ func (cls *CacheContainer)Get(value string)(interface{}) {
 			}
 			p := elem.FieldByName("Parent")
 			if p.IsValid() && p.CanSet() {
-				p.Set(reflect.ValueOf(obj))
+				p.Set(reflect.ValueOf(res))
 			}
 		}
-		cls.storage.Get(cls.tableName, value, obj)
 		cls.Lock()
 		defer cls.Unlock()
-		cls.items[value] = obj
-		return obj
+		cls.items[value] = res
+		return res
 	}
 }
 
@@ -116,6 +114,7 @@ type EmbedME struct {
 	Parent   interface{}
 	updates int
 	LastUpdate time.Time
+	Hasan		int
 	sync.RWMutex
 }
 
@@ -134,7 +133,7 @@ func (cls *EmbedME)UpdateStorage() {
 	defer cls.Unlock()
 	if cls.updates > 0 {
 		fmt.Println("yesssssssssssssssss  Let update")
-		cls.Container.storage.Update(cls.Container.tableName, "id", cls.Parent)
+		cls.Container.storage.Update(cls.Parent)
 		cls.updates = 0
 	}
 }

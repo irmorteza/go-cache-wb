@@ -19,7 +19,7 @@ type Config struct {
 	Interval               int
 	CacheWriteLatencyTime  int
 	CacheWriteLatencyCount int
-	StorageName                  StorageKind
+	StorageName            StorageKind
 	Database               interface{}
 }
 

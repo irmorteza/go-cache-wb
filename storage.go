@@ -1,8 +1,8 @@
 package cachewb
 
 type Storage interface {
-	Get(tableName string, key string, o interface{})
-	Update(tableName string, key string, in interface{})
+	Get(key string) interface{}
+	Update(in interface{})
 }
 
 type StorageKind uint
@@ -14,13 +14,14 @@ const (
 	SQL
 )
 
-func newStorage(cfg Config) Storage {
+func newStorage(tableName string, cfg Config, itemTemplate interface{}) Storage {
 	if cfg.StorageName == MYSQL {
 		cfgMysql, ok := cfg.Database.(ConfigMysql)
 		if !ok {
 			panic("MySQL configs, are not correct, Please check configs")
 		}
-		return &MySQL{cfg: cfgMysql}
+
+		return newMySQL(tableName, cfgMysql, itemTemplate)
 	}else{
 		panic("Unknown Storage !")
 	}
