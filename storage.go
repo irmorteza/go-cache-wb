@@ -4,7 +4,7 @@ type Storage interface {
 	Get(key interface{}) interface{}
 	Update(in interface{})
 	Insert(in interface{}) interface{}
-	Remove(k string, v interface{}) interface{}
+	Remove(v interface{}) interface{}
 }
 
 type StorageKind uint

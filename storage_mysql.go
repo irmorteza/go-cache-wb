@@ -96,7 +96,6 @@ func (cls *MySQL) ParseTemplate() {
 	//fmt.Println(cls.updateQueryFields)
 	//fmt.Println(cls.insertQuery)
 	//fmt.Println(cls.insertQueryFields)
-
 }
 
 func (cls *MySQL) CheckConnection() {
@@ -213,10 +212,10 @@ func (cls *MySQL) Insert(in interface{}) interface{}{
 	return m
 }
 
-func (cls *MySQL) Remove(key string, value interface{}) interface{}{
+func (cls *MySQL) Remove(value interface{}) interface{}{
 
 	cls.CheckConnection()
-	q := fmt.Sprintf("DELETE from %s where %s = ?", cls.tableName, key)
+	q := fmt.Sprintf(cls.deleteQuery)
 	stmt, err := cls.mysqlDB.Prepare(q)
 	if err != nil {
 		panic(err)

@@ -125,8 +125,8 @@ func (cls *CacheContainer)Insert(in interface{})interface{} {
 	return res
 }
 
-func (cls *CacheContainer)Remove(key string, value interface{}) interface{}{
-	return cls.storage.Remove(key, value)
+func (cls *CacheContainer)Remove(value interface{}) interface{}{
+	return cls.storage.Remove(value)
 }
 
 func (cls *CacheContainer)RemoveFromCache(name interface{}) {
