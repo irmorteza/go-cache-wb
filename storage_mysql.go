@@ -40,8 +40,8 @@ func newMySQL(tableName string, cfg ConfigMysql, itemTemplate interface{})  *MyS
 }
 
 func (cls *MySQL) ParseTemplate() {
-	// create map field
 	setClause := ""
+	selectClause := ""
 	whereClause := ""
 	whereFieldName := ""
 	val1 := ""
@@ -52,11 +52,11 @@ func (cls *MySQL) ParseTemplate() {
 		f := t.Field(i)
 		if tag := f.Tag.Get("storage"); tag != "" {
 			cls.fieldsMap[tag] = f.Name
-
+			selectClause = fmt.Sprintf("%s, %s", selectClause, tag)
 			if f.Tag.Get("key") == "1" {
 				whereFieldName = f.Name
 				whereClause = fmt.Sprintf("%s = ?", tag)
-			} else if f.Tag.Get("update") != "0" {
+			} else if f.Tag.Get("update") != "0" && f.Tag.Get("autoInc") != "1" {
 				cls.updateQueryFields = append(cls.updateQueryFields, f.Name)
 				setClause = fmt.Sprintf("%s, %s = ?", setClause, tag)
 			}
@@ -67,25 +67,25 @@ func (cls *MySQL) ParseTemplate() {
 					val2 = fmt.Sprintf("%s, ?", val2)
 				}
 			}
-		} //else {		if had not storage
-		//	cls.fieldsMap[f.Name] = f.Name
-		//}
+		}
 	}
 
-	// create update query
 	if whereFieldName == ""{
-		panic("Can't find updateKey")  		// TODO fix message
+		panic("Can't find Key")  		// TODO fix message
 	}
 
 	cls.updateQueryFields = append(cls.updateQueryFields, whereFieldName)
 	if len(setClause) > 0 && strings.HasPrefix(setClause, ", "){
 		setClause = setClause [2:]
 	}
+	if len(selectClause) > 0 && strings.HasPrefix(selectClause, ", "){
+		selectClause = selectClause [2:]
+	}
 	if len(val1) > 0 && strings.HasPrefix(val1, ", "){
 		val1 = val1 [2:]
 		val2 = val2 [2:]
 	}
-	cls.selectQuery = fmt.Sprintf("SELECT * FROM %s WHERE %s;", cls.tableName, whereClause)
+	cls.selectQuery = fmt.Sprintf("SELECT %s FROM %s WHERE %s;", selectClause, cls.tableName, whereClause)
 	cls.deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s;", cls.tableName, whereClause)
 	cls.updateQuery = fmt.Sprintf("UPDATE %s SET %s WHERE %s;", cls.tableName, setClause, whereClause)
 	cls.insertQuery = fmt.Sprintf("INSERT INTO %s (%s) values (%s);", cls.tableName, val1, val2)
