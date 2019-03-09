@@ -23,10 +23,12 @@ type MySQL struct {
 	itemTemplate      interface{}
 	fieldsMap         map[string]string
 	tableName         string
+	selectQuery       string
 	updateQuery       string
 	updateQueryFields []string
 	insertQuery       string
 	insertQueryFields []string
+	deleteQuery       string
 	cfg               ConfigMysql
 }
 
@@ -51,7 +53,7 @@ func (cls *MySQL) ParseTemplate() {
 		if tag := f.Tag.Get("storage"); tag != "" {
 			cls.fieldsMap[tag] = f.Name
 
-			if f.Tag.Get("updateKey") == "1" {
+			if f.Tag.Get("key") == "1" {
 				whereFieldName = f.Name
 				whereClause = fmt.Sprintf("%s = ?", tag)
 			} else if f.Tag.Get("update") != "0" {
@@ -83,13 +85,17 @@ func (cls *MySQL) ParseTemplate() {
 		val1 = val1 [2:]
 		val2 = val2 [2:]
 	}
+	cls.selectQuery = fmt.Sprintf("SELECT * FROM %s WHERE %s;", cls.tableName, whereClause)
+	cls.deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s;", cls.tableName, whereClause)
 	cls.updateQuery = fmt.Sprintf("UPDATE %s SET %s WHERE %s;", cls.tableName, setClause, whereClause)
 	cls.insertQuery = fmt.Sprintf("INSERT INTO %s (%s) values (%s);", cls.tableName, val1, val2)
 
-	fmt.Println(cls.updateQuery)
-	fmt.Println(cls.updateQueryFields)
-	fmt.Println(cls.insertQuery)
-	fmt.Println(cls.insertQueryFields)
+	//fmt.Println(cls.selectQuery)
+	//fmt.Println(cls.deleteQuery)
+	//fmt.Println(cls.updateQuery)
+	//fmt.Println(cls.updateQueryFields)
+	//fmt.Println(cls.insertQuery)
+	//fmt.Println(cls.insertQueryFields)
 
 }
 
@@ -105,12 +111,12 @@ func (cls *MySQL) CheckConnection() {
 	}
 }
 
-func (cls *MySQL) Get(key string) interface{}{
+func (cls *MySQL) Get(key interface{}) interface{}{
 	val := reflect.New(reflect.TypeOf(cls.itemTemplate))
 	elem := val.Elem()
 	cls.CheckConnection()
 
-	stmt, err := cls.mysqlDB.Prepare(fmt.Sprintf("SELECT * from %s where name = ? ;", cls.tableName))
+	stmt, err := cls.mysqlDB.Prepare(cls.selectQuery)
 	if err != nil {
 		panic(err)
 	}
@@ -190,7 +196,7 @@ func (cls *MySQL) Insert(in interface{}) interface{}{
 			valuePtrs = append(valuePtrs, zz.Interface())
 		}
 	}
-	fmt.Println(valuePtrs)
+	//fmt.Println(valuePtrs)
 	cls.CheckConnection()
 	stmt, err := cls.mysqlDB.Prepare(cls.insertQuery)
 	if err != nil {
@@ -198,6 +204,25 @@ func (cls *MySQL) Insert(in interface{}) interface{}{
 	}
 	defer stmt.Close()
 	res, err := stmt.Exec(valuePtrs...)
+	if err != nil {
+		panic(err)
+	}
+	m := make(map[string]interface{})
+	m["LastInsertId"], _ = res.LastInsertId()
+	m["RowsAffected"], _ = res.RowsAffected()
+	return m
+}
+
+func (cls *MySQL) Remove(key string, value interface{}) interface{}{
+
+	cls.CheckConnection()
+	q := fmt.Sprintf("DELETE from %s where %s = ?", cls.tableName, key)
+	stmt, err := cls.mysqlDB.Prepare(q)
+	if err != nil {
+		panic(err)
+	}
+	defer stmt.Close()
+	res, err := stmt.Exec(value)
 	if err != nil {
 		panic(err)
 	}

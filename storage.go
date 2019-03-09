@@ -1,9 +1,10 @@
 package cachewb
 
 type Storage interface {
-	Get(key string) interface{}
+	Get(key interface{}) interface{}
 	Update(in interface{})
 	Insert(in interface{}) interface{}
+	Remove(k string, v interface{}) interface{}
 }
 
 type StorageKind uint

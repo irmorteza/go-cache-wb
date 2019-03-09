@@ -21,6 +21,7 @@ type Config struct {
 	CacheWriteLatencyCount int
 	StorageName            StorageKind
 	Database               interface{}
+	AccessTTL				int
 }
 
 func NewCacheWB(cfg Config) *Cache  {
