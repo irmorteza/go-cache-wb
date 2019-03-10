@@ -5,12 +5,12 @@ type Cache struct {
 	config     Config
 }
 
-func (cls *Cache) GetObject(tableName string, objType interface{}) *CacheContainer{
-	if item, ok:= cls.containers[tableName]; ok {
+func (c *Cache) GetObject(tableName string, objType interface{}) *CacheContainer{
+	if item, ok:= c.containers[tableName]; ok {
 		return item
 	}else {
-		m := newContainer(tableName, cls.config, objType)
-		cls.containers[tableName] = m
+		m := newContainer(tableName, c.config, objType)
+		c.containers[tableName] = m
 		return m
 	}
 }

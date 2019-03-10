@@ -39,30 +39,30 @@ func newMySQL(tableName string, cfg ConfigMysql, itemTemplate interface{})  *MyS
 	return m
 }
 
-func (cls *MySQL) ParseTemplate() {
+func (c *MySQL) ParseTemplate() {
 	setClause := ""
 	selectClause := ""
 	whereClause := ""
 	whereFieldName := ""
 	val1 := ""
 	val2 := ""
-	cls.fieldsMap = make(map[string]string)
-	t := reflect.TypeOf(cls.itemTemplate)
+	c.fieldsMap = make(map[string]string)
+	t := reflect.TypeOf(c.itemTemplate)
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
 		if tag := f.Tag.Get("storage"); tag != "" {
-			cls.fieldsMap[tag] = f.Name
+			c.fieldsMap[tag] = f.Name
 			selectClause = fmt.Sprintf("%s, %s", selectClause, tag)
 			if f.Tag.Get("key") == "1" {
 				whereFieldName = f.Name
 				whereClause = fmt.Sprintf("%s = ?", tag)
 			} else if f.Tag.Get("update") != "0" && f.Tag.Get("autoInc") != "1" {
-				cls.updateQueryFields = append(cls.updateQueryFields, f.Name)
+				c.updateQueryFields = append(c.updateQueryFields, f.Name)
 				setClause = fmt.Sprintf("%s, %s = ?", setClause, tag)
 			}
 			if f.Tag.Get("insert") != "0" {
 				if f.Tag.Get("autoInc") != "1" {
-					cls.insertQueryFields = append(cls.insertQueryFields, f.Name)
+					c.insertQueryFields = append(c.insertQueryFields, f.Name)
 					val1 = fmt.Sprintf("%s, %s", val1, tag)
 					val2 = fmt.Sprintf("%s, ?", val2)
 				}
@@ -74,7 +74,7 @@ func (cls *MySQL) ParseTemplate() {
 		panic("Can't find Key")  		// TODO fix message
 	}
 
-	cls.updateQueryFields = append(cls.updateQueryFields, whereFieldName)
+	c.updateQueryFields = append(c.updateQueryFields, whereFieldName)
 	if len(setClause) > 0 && strings.HasPrefix(setClause, ", "){
 		setClause = setClause [2:]
 	}
@@ -85,37 +85,37 @@ func (cls *MySQL) ParseTemplate() {
 		val1 = val1 [2:]
 		val2 = val2 [2:]
 	}
-	cls.selectQuery = fmt.Sprintf("SELECT %s FROM %s WHERE %s;", selectClause, cls.tableName, whereClause)
-	cls.deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s;", cls.tableName, whereClause)
-	cls.updateQuery = fmt.Sprintf("UPDATE %s SET %s WHERE %s;", cls.tableName, setClause, whereClause)
-	cls.insertQuery = fmt.Sprintf("INSERT INTO %s (%s) values (%s);", cls.tableName, val1, val2)
+	c.selectQuery = fmt.Sprintf("SELECT %s FROM %s WHERE %s;", selectClause, c.tableName, whereClause)
+	c.deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s;", c.tableName, whereClause)
+	c.updateQuery = fmt.Sprintf("UPDATE %s SET %s WHERE %s;", c.tableName, setClause, whereClause)
+	c.insertQuery = fmt.Sprintf("INSERT INTO %s (%s) values (%s);", c.tableName, val1, val2)
 
-	//fmt.Println(cls.selectQuery)
-	//fmt.Println(cls.deleteQuery)
-	//fmt.Println(cls.updateQuery)
-	//fmt.Println(cls.updateQueryFields)
-	//fmt.Println(cls.insertQuery)
-	//fmt.Println(cls.insertQueryFields)
+	//fmt.Println(c.selectQuery)
+	//fmt.Println(c.deleteQuery)
+	//fmt.Println(c.updateQuery)
+	//fmt.Println(c.updateQueryFields)
+	//fmt.Println(c.insertQuery)
+	//fmt.Println(c.insertQueryFields)
 }
 
-func (cls *MySQL) CheckConnection() {
-	if cls.mysqlDB == nil {
-		qs := cls.cfg.Username + ":" + cls.cfg.Password + "@tcp(" + cls.cfg.Host + ":" + strconv.Itoa(cls.cfg.Port) + ")/" + cls.cfg.DBName + "?parseTime=true"
+func (c *MySQL) CheckConnection() {
+	if c.mysqlDB == nil {
+		qs := c.cfg.Username + ":" + c.cfg.Password + "@tcp(" + c.cfg.Host + ":" + strconv.Itoa(c.cfg.Port) + ")/" + c.cfg.DBName + "?parseTime=true"
 		var err error
-		cls.mysqlDB, err = sql.Open("mysql", qs)
+		c.mysqlDB, err = sql.Open("mysql", qs)
 		if err != nil {
 			panic(err.Error()) // Just for example purpose. You should use proper error handling instead of panic
 		}
-		cls.mysqlDB.SetMaxOpenConns(cls.cfg.MaxOpenConnection)
+		c.mysqlDB.SetMaxOpenConns(c.cfg.MaxOpenConnection)
 	}
 }
 
-func (cls *MySQL) Get(key interface{}) interface{}{
-	val := reflect.New(reflect.TypeOf(cls.itemTemplate))
+func (c *MySQL) Get(key interface{}) interface{}{
+	val := reflect.New(reflect.TypeOf(c.itemTemplate))
 	elem := val.Elem()
-	cls.CheckConnection()
+	c.CheckConnection()
 
-	stmt, err := cls.mysqlDB.Prepare(cls.selectQuery)
+	stmt, err := c.mysqlDB.Prepare(c.selectQuery)
 	if err != nil {
 		panic(err)
 	}
@@ -149,7 +149,7 @@ func (cls *MySQL) Get(key interface{}) interface{}{
 			}
 
 			if elem.Kind() == reflect.Struct {
-				if c2, ok := cls.fieldsMap[col]; ok {
+				if c2, ok := c.fieldsMap[col]; ok {
 					f := elem.FieldByName(c2)
 					if f.IsValid() && f.CanSet() {
 						f.Set(reflect.ValueOf(v))
@@ -161,19 +161,19 @@ func (cls *MySQL) Get(key interface{}) interface{}{
 	return val.Interface()
 }
 
-func (cls *MySQL) Update(in interface{}) {
+func (c *MySQL) Update(in interface{}) {
 	elem := reflect.ValueOf(in).Elem()
 
 	valuePtrs := make([]interface{}, 0)
 
-	for _, n:=range cls.updateQueryFields {
+	for _, n:=range c.updateQueryFields {
 		zz := elem.FieldByName(n)
 		if zz.IsValid(){
 			valuePtrs = append(valuePtrs, zz.Interface())
 		}
 	}
-	cls.CheckConnection()
-	stmt, err := cls.mysqlDB.Prepare(cls.updateQuery)
+	c.CheckConnection()
+	stmt, err := c.mysqlDB.Prepare(c.updateQuery)
 	if err != nil {
 		panic(err)
 	}
@@ -184,20 +184,20 @@ func (cls *MySQL) Update(in interface{}) {
 	}
 }
 
-func (cls *MySQL) Insert(in interface{}) interface{}{
+func (c *MySQL) Insert(in interface{}) interface{}{
 	elem := reflect.ValueOf(in)
 
 	valuePtrs := make([]interface{}, 0)
 
-	for _, n:=range cls.insertQueryFields {
+	for _, n:=range c.insertQueryFields {
 		zz := elem.FieldByName(n)
 		if zz.IsValid(){
 			valuePtrs = append(valuePtrs, zz.Interface())
 		}
 	}
 	//fmt.Println(valuePtrs)
-	cls.CheckConnection()
-	stmt, err := cls.mysqlDB.Prepare(cls.insertQuery)
+	c.CheckConnection()
+	stmt, err := c.mysqlDB.Prepare(c.insertQuery)
 	if err != nil {
 		panic(err)
 	}
@@ -212,11 +212,11 @@ func (cls *MySQL) Insert(in interface{}) interface{}{
 	return m
 }
 
-func (cls *MySQL) Remove(value interface{}) interface{}{
+func (c *MySQL) Remove(value interface{}) interface{}{
 
-	cls.CheckConnection()
-	q := fmt.Sprintf(cls.deleteQuery)
-	stmt, err := cls.mysqlDB.Prepare(q)
+	c.CheckConnection()
+	q := fmt.Sprintf(c.deleteQuery)
+	stmt, err := c.mysqlDB.Prepare(q)
 	if err != nil {
 		panic(err)
 	}
