@@ -1,6 +1,7 @@
 package cachewb
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"sync"
@@ -8,13 +9,14 @@ import (
 )
 
 type CacheContainer struct {
-	storage  Storage
-	config   Config
-	name     string // table name
-	TempTime time.Time
-	itemType interface{}
-	items    map[interface{}]interface{}
-	wu       chan interface{}
+	storage    Storage
+	config     Config
+	name       string // table name
+	lockUpdate bool
+	TempTime   time.Time
+	itemType   interface{}
+	items      map[interface{}]interface{}
+	wu         chan interface{}
 	sync.RWMutex
 }
 
@@ -82,8 +84,26 @@ func (c *CacheContainer)workerMaintainer() {
 	}
 }
 
-func (c *CacheContainer) Flush(value interface{}) {
-	
+func (c *CacheContainer) Flush(l bool) {
+	c.Lock()
+	defer func() {
+		if l {
+			c.lockUpdate = false
+		}
+		c.Unlock()
+	}()
+	if l {
+		c.lockUpdate = true
+	}
+	for _, item := range c.items {
+		val := reflect.ValueOf(item)
+		elem := val.Elem()
+		f1 := elem.FieldByName("updates")
+
+		if f1.Int() > 0 {
+			val.MethodByName("UpdateStorage").Call([]reflect.Value{}) // TODO may this line need go
+		}
+	}
 }
 
 func (c *CacheContainer) getByLock(value interface{}) (interface{}, bool) {
@@ -125,15 +145,27 @@ func (c *CacheContainer)Get(value interface{})interface{} {
 }
 
 func (c *CacheContainer)Insert(in interface{})interface{} {
+	if c.lockUpdate{
+		fmt.Println(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
+		return nil
+	}
 	res := c.storage.Insert(in)
 	return res
 }
 
 func (c *CacheContainer)Remove(value interface{}) interface{}{
+	if c.lockUpdate{
+		fmt.Println(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
+		return nil
+	}
+	c.RemoveFromCache(value)
 	return c.storage.Remove(value)
 }
 
 func (c *CacheContainer)RemoveFromCache(name interface{}) {
+	if c.lockUpdate{
+		fmt.Println(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
+	}
 	delete(c.items, name)
 }
 
@@ -146,15 +178,21 @@ type EmbedME struct {
 	sync.RWMutex
 }
 
-func (c *EmbedME)Inc(a interface{}){
+func (c *EmbedME)Inc(a interface{}) error{
 	c.Lock()
 	defer c.Unlock()
+	if c.Container.lockUpdate{
+		fmt.Println(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.Container.name))
+		return errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.Container.name))
+	}
+
 	c.updates ++
 	c.LastUpdate = time.Now()
 	c.LastAccess = time.Now()
 	if c.updates > c.Container.config.CacheWriteLatencyCount {
 		c.Container.wu <- a
 	}
+	return nil
 }
 
 func (c *EmbedME)SetAccess() {
