@@ -80,7 +80,7 @@ func main() {
 	}
 
 	c := cachewb.NewCacheWB(cfg)
-	f := c.GetObject("members", Members{})
+	f := c.GetContainer("members", Members{})
 	out := f.Get("Morteza").(*Members)
 	fmt.Println(out)
 
