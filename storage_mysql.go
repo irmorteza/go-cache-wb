@@ -36,6 +36,7 @@ func newMySQL(tableName string, cfg ConfigMysql, itemTemplate interface{})  *MyS
 	m := &MySQL{cfg: cfg, tableName:tableName}
 	m.itemTemplate = itemTemplate
 	m.ParseTemplate()
+	//m.TEEEEEEEEEEEEEEEEEEEEEEEEEEEMPvaluePtrs = make([]interface{}, 3)
 	return m
 }
 
@@ -52,6 +53,7 @@ func (c *MySQL) ParseTemplate() {
 		f := t.Field(i)
 		if tag := f.Tag.Get("storage"); tag != "" {
 			c.fieldsMap[tag] = f.Name
+			//fmt.Println("%%%%%%%%%%%%%%%%%%%", f.Type)
 			selectClause = fmt.Sprintf("%s, %s", selectClause, tag)
 			if f.Tag.Get("key") == "1" {
 				whereFieldName = f.Name
@@ -110,7 +112,7 @@ func (c *MySQL) CheckConnection() {
 	}
 }
 
-func (c *MySQL) Get(key interface{}) interface{}{
+func (c *MySQL) Get(key interface{}) interface{} {
 	val := reflect.New(reflect.TypeOf(c.itemTemplate))
 	elem := val.Elem()
 	c.CheckConnection()
@@ -131,28 +133,39 @@ func (c *MySQL) Get(key interface{}) interface{}{
 	valuePtrs := make([]interface{}, count)
 
 	for rows.Next() {
-
 		for i := range columns {
 			valuePtrs[i] = &values[i]
 		}
-
 		rows.Scan(valuePtrs...)
-
+		//fmt.Println(values)
 		for i, col := range columns {
-			var v interface{}
 			val := values[i]
-			b, ok := val.([]byte)
-			if ok {
-				v = string(b)
-			} else {
-				v = val
-			}
-
+			resByte , okByte := val.([]byte)
 			if elem.Kind() == reflect.Struct {
 				if c2, ok := c.fieldsMap[col]; ok {
 					f := elem.FieldByName(c2)
 					if f.IsValid() && f.CanSet() {
-						f.Set(reflect.ValueOf(v))
+						//fmt.Println("##### Consider me ", c2, f.Kind(), reflect.TypeOf(val), val)
+						if f.Kind() == reflect.Float64 {
+							if okByte {
+								//(float64) supported mysql data types : decimal
+								r, _ := strconv.ParseFloat(string(resByte), 64)
+								f.SetFloat(r)
+							}else {
+								//(float64) supported mysql data types : double, real
+								f.Set(reflect.ValueOf(val))
+							}
+						} else if f.Kind() == reflect.Slice {
+							// ([]byte) supported mysql data types : binary, tinyblob
+							f.Set(reflect.ValueOf(val))
+						} else if f.Kind() == reflect.String {
+							// (string) supported mysql data types :varchar, varbinary, tinytext
+							if okByte{
+								f.Set(reflect.ValueOf(string(resByte)))
+							}
+						} else {
+							f.Set(reflect.ValueOf(val))
+						}
 					}
 				}
 			}
