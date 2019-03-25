@@ -10,7 +10,7 @@ Please read following links, to know more about caching sterategies
 
 ## Download cacheWB
 ```
-go get -u github.com/irmorteza/cachewb
+go get -u github.com/irmorteza/go-cache-wb
 ```
 
 ## dependencies
