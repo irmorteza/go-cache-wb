@@ -7,7 +7,7 @@ type Cache struct {
 	config     Config
 }
 
-func (c *Cache) GetObject(tableName string, objType interface{}) *CacheContainer{
+func (c *Cache) GetContainer(tableName string, objType interface{}) *CacheContainer{
 	if item, ok:= c.containers[tableName]; ok {
 		return item
 	}else {
@@ -40,7 +40,8 @@ type Config struct {
 	CacheWriteLatencyCount int
 	StorageName            StorageKind
 	Database               interface{}
-	AccessTTL				int
+	AccessTTL              int
+	RestPort               int
 }
 
 func NewCacheWB(cfg Config) *Cache  {

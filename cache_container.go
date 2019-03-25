@@ -9,14 +9,14 @@ import (
 )
 
 type CacheContainer struct {
-	storage    Storage
-	config     Config
-	name       string // table name
-	lockUpdate bool
-	TempTime   time.Time
-	itemType   interface{}
-	items      map[interface{}]interface{}
-	wu         chan interface{}
+	storage      Storage
+	config       Config
+	name         string // table name
+	lockUpdate   bool
+	UpdatedCount uint // TODO temp
+	itemType     interface{}
+	items        map[interface{}]interface{}
+	wu           chan interface{}
 	sync.RWMutex
 }
 
@@ -41,7 +41,7 @@ func (c *CacheContainer)workerConsumerUpdater() {
 	for {
 		select {
 		case item := <-c.wu:
-			fmt.Println("Hello Worker. I want update:" , item)
+			//fmt.Println("Hello Worker. I want update:" , item)
 			reflect.ValueOf(item).MethodByName("UpdateStorage").Call([]reflect.Value{})
 		}
 	}
@@ -67,10 +67,10 @@ func (c *CacheContainer)workerMaintainer() {
 					f2 := elem.FieldByName("LastUpdate")
 
 					if f1.Int() > int64(c.config.CacheWriteLatencyCount) {
-						val.MethodByName("UpdateStorage").Call([]reflect.Value{})	  // TODO may this line need go
+						c.wu <- item
 					} else if f1.Int() > 0 &&
 						time.Since(f2.Interface().(time.Time)).Seconds() > float64(c.config.CacheWriteLatencyTime) {
-						val.MethodByName("UpdateStorage").Call([]reflect.Value{})	  // TODO may this line need go
+						c.wu <- item
 					}
 
 					res := val.MethodByName("TTLReached").Call([]reflect.Value{})
@@ -189,7 +189,7 @@ func (c *EmbedME)Inc(a interface{}) error{
 	c.updates ++
 	c.LastUpdate = time.Now()
 	c.LastAccess = time.Now()
-	if c.updates > c.Container.config.CacheWriteLatencyCount {
+	if c.updates >= c.Container.config.CacheWriteLatencyCount {
 		c.Container.wu <- a
 	}
 	return nil
@@ -205,8 +205,9 @@ func (c *EmbedME)UpdateStorage() {
 	c.Lock()
 	defer c.Unlock()
 	if c.updates > 0 {
-		fmt.Println("yesssssssssssssssss  Let update")
+		//fmt.Println("Let update, updates= ", c.updates)
 		c.Container.storage.Update(c.Parent)
+		c.Container.UpdatedCount += uint(c.updates)
 		c.updates = 0
 	}
 }
