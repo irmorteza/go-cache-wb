@@ -22,6 +22,10 @@ type CacheContainer struct {
 
 func newContainer(tbl string, cfg Config, containerType interface{}) *CacheContainer {
 	var m CacheContainer
+	t := reflect.TypeOf(containerType)
+	if t.NumField() == 0 || t.Field(0).Name != "EmbedME"{
+		panic(fmt.Sprintf("Coundn't find 'EmbedME' in %s. Please Add 'cachewb.EmbedME' at top of %s" , t.Name(), t.Name()))
+	}
 	m.itemType = containerType
 	m.config = cfg
 	m.name = tbl
@@ -175,12 +179,12 @@ type EmbedME struct {
 	updates    int
 	LastUpdate time.Time
 	LastAccess time.Time
-	sync.RWMutex
+	mu         sync.RWMutex
 }
 
 func (c *EmbedME)Inc(a interface{}) error{
-	c.Lock()
-	defer c.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.Container.lockUpdate{
 		fmt.Println(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.Container.name))
 		return errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.Container.name))
@@ -196,14 +200,14 @@ func (c *EmbedME)Inc(a interface{}) error{
 }
 
 func (c *EmbedME)SetAccess() {
-	c.Lock()
-	defer c.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.LastAccess = time.Now()
 }
 
 func (c *EmbedME)UpdateStorage() {
-	c.Lock()
-	defer c.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.updates > 0 {
 		//fmt.Println("Let update, updates= ", c.updates)
 		c.Container.storage.Update(c.Parent)
