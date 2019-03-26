@@ -16,8 +16,8 @@ type CacheContainer struct {
 	UpdatedCount uint // TODO temp
 	itemType     interface{}
 	items        map[interface{}]interface{}
-	wu           chan interface{}
-	sync.RWMutex
+	workerChan   chan interface{}
+	mu           sync.RWMutex
 }
 
 func newContainer(tbl string, cfg Config, containerType interface{}) *CacheContainer {
@@ -27,7 +27,7 @@ func newContainer(tbl string, cfg Config, containerType interface{}) *CacheConta
 	m.name = tbl
 	m.storage = newStorage(tbl, cfg, containerType)
 	m.items = make(map[interface{}]interface{})
-	m.wu = make(chan interface{})
+	m.workerChan = make(chan interface{})
 	m.setManager()
 	return &m
 }
@@ -40,7 +40,7 @@ func (c *CacheContainer)setManager(){
 func (c *CacheContainer)workerConsumerUpdater() {
 	for {
 		select {
-		case item := <-c.wu:
+		case item := <-c.workerChan:
 			//fmt.Println("Hello Worker. I want update:" , item)
 			reflect.ValueOf(item).MethodByName("UpdateStorage").Call([]reflect.Value{})
 		}
@@ -58,8 +58,8 @@ func (c *CacheContainer)workerMaintainer() {
 						fmt.Println("Error in worker") // TODO remind for more developing
 					}
 				}()
-				c.Lock()
-				defer c.Unlock()
+				c.mu.Lock()
+				defer c.mu.Unlock()
 				for n, item := range c.items {
 					val := reflect.ValueOf(item)
 					elem := val.Elem()
@@ -67,10 +67,10 @@ func (c *CacheContainer)workerMaintainer() {
 					f2 := elem.FieldByName("LastUpdate")
 
 					if f1.Int() > int64(c.config.CacheWriteLatencyCount) {
-						c.wu <- item
+						c.workerChan <- item
 					} else if f1.Int() > 0 &&
 						time.Since(f2.Interface().(time.Time)).Seconds() > float64(c.config.CacheWriteLatencyTime) {
-						c.wu <- item
+						c.workerChan <- item
 					}
 
 					res := val.MethodByName("TTLReached").Call([]reflect.Value{})
@@ -85,12 +85,12 @@ func (c *CacheContainer)workerMaintainer() {
 }
 
 func (c *CacheContainer) Flush(l bool) {
-	c.Lock()
+	c.mu.Lock()
 	defer func() {
 		if l {
 			c.lockUpdate = false
 		}
-		c.Unlock()
+		c.mu.Unlock()
 	}()
 	if l {
 		c.lockUpdate = true
@@ -107,8 +107,8 @@ func (c *CacheContainer) Flush(l bool) {
 }
 
 func (c *CacheContainer) getByLock(value interface{}) (interface{}, bool) {
-	c.Lock()
-	defer c.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	r, ok := c.items[value]
 	return r, ok
 }
@@ -137,8 +137,8 @@ func (c *CacheContainer)Get(value interface{})interface{} {
 				ex.Set(reflect.ValueOf(time.Now()))
 			}
 		}
-		c.Lock()
-		defer c.Unlock()
+		c.mu.Lock()
+		defer c.mu.Unlock()
 		c.items[value] = res
 		return res
 	}
@@ -190,7 +190,7 @@ func (c *EmbedME)Inc(a interface{}) error{
 	c.LastUpdate = time.Now()
 	c.LastAccess = time.Now()
 	if c.updates >= c.Container.config.CacheWriteLatencyCount {
-		c.Container.wu <- a
+		c.Container.workerChan <- a
 	}
 	return nil
 }
