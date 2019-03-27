@@ -6,7 +6,6 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"reflect"
 	"strconv"
-	"strings"
 )
 
 type ConfigMysql struct {
@@ -44,9 +43,10 @@ func (c *MySQL) ParseTemplate() {
 	setClause := ""
 	selectClause := ""
 	whereClause := ""
-	whereFieldName := ""
+	//whereFieldName := ""
 	val1 := ""
 	val2 := ""
+	var whereFieldName []string
 	c.fieldsMap = make(map[string]string)
 	t := reflect.TypeOf(c.itemTemplate)
 	for i := 0; i < t.NumField(); i++ {
@@ -54,39 +54,48 @@ func (c *MySQL) ParseTemplate() {
 		if tag := f.Tag.Get("storage"); tag != "" {
 			c.fieldsMap[tag] = f.Name
 			//fmt.Println("%%%%%%%%%%%%%%%%%%%", f.Type)
-			selectClause = fmt.Sprintf("%s, %s", selectClause, tag)
+			if len(selectClause) > 0 {
+				selectClause = fmt.Sprintf("%s, %s", selectClause, tag)
+			}else{
+				selectClause = fmt.Sprintf("%s", tag)
+			}
 			if f.Tag.Get("key") == "1" {
-				whereFieldName = f.Name
-				whereClause = fmt.Sprintf("%s = ?", tag)
+				//whereFieldName = f.Name
+				whereFieldName = append(whereFieldName, f.Name)
+				if len(whereClause) > 0 {
+					whereClause = fmt.Sprintf("%s and %s = ?", whereClause, tag)
+				}else {
+					whereClause = fmt.Sprintf("%s = ?", tag)
+				}
 			} else if f.Tag.Get("update") != "0" && f.Tag.Get("autoInc") != "1" {
 				c.updateQueryFields = append(c.updateQueryFields, f.Name)
-				setClause = fmt.Sprintf("%s, %s = ?", setClause, tag)
+				if len(setClause) > 0 {
+					setClause = fmt.Sprintf("%s, %s = ?", setClause, tag)
+				}else{
+					setClause = fmt.Sprintf("%s = ?", tag)
+				}
 			}
 			if f.Tag.Get("insert") != "0" {
 				if f.Tag.Get("autoInc") != "1" {
 					c.insertQueryFields = append(c.insertQueryFields, f.Name)
-					val1 = fmt.Sprintf("%s, %s", val1, tag)
-					val2 = fmt.Sprintf("%s, ?", val2)
+					if len(val1) > 0 {
+						val1 = fmt.Sprintf("%s, %s", val1, tag)
+						val2 = fmt.Sprintf("%s, ?", val2)
+					}else {
+						val1 = fmt.Sprintf("%s", tag)
+						val2 = fmt.Sprintf("?")
+					}
 				}
 			}
 		}
 	}
 
-	if whereFieldName == ""{
+	if len(whereFieldName) == 0{
 		panic("Can't find Key")  		// TODO fix message
 	}
 
-	c.updateQueryFields = append(c.updateQueryFields, whereFieldName)
-	if len(setClause) > 0 && strings.HasPrefix(setClause, ", "){
-		setClause = setClause [2:]
-	}
-	if len(selectClause) > 0 && strings.HasPrefix(selectClause, ", "){
-		selectClause = selectClause [2:]
-	}
-	if len(val1) > 0 && strings.HasPrefix(val1, ", "){
-		val1 = val1 [2:]
-		val2 = val2 [2:]
-	}
+	c.updateQueryFields = append(c.updateQueryFields, whereFieldName...)
+
 	c.selectQuery = fmt.Sprintf("SELECT %s FROM %s WHERE %s;", selectClause, c.tableName, whereClause)
 	c.deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s;", c.tableName, whereClause)
 	c.updateQuery = fmt.Sprintf("UPDATE %s SET %s WHERE %s;", c.tableName, setClause, whereClause)
@@ -112,7 +121,7 @@ func (c *MySQL) CheckConnection() {
 	}
 }
 
-func (c *MySQL) Get(key interface{}) interface{} {
+func (c *MySQL) Get(key ...interface{}) interface{} {
 	val := reflect.New(reflect.TypeOf(c.itemTemplate))
 	elem := val.Elem()
 	c.CheckConnection()
@@ -122,7 +131,7 @@ func (c *MySQL) Get(key interface{}) interface{} {
 		panic(err)
 	}
 	defer stmt.Close()
-	rows, err := stmt.Query(key)
+	rows, err := stmt.Query(key...)
 	if err != nil {
 		panic(err)
 	}

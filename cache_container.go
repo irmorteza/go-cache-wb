@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 )
@@ -45,7 +46,7 @@ func (c *CacheContainer)workerConsumerUpdater() {
 	for {
 		select {
 		case item := <-c.workerChan:
-			//fmt.Println("Hello Worker. I want update:" , item)
+			fmt.Println("Hello Worker. I want update:" , item)
 			reflect.ValueOf(item).MethodByName("UpdateStorage").Call([]reflect.Value{})
 		}
 	}
@@ -67,20 +68,21 @@ func (c *CacheContainer)workerMaintainer() {
 				for n, item := range c.items {
 					val := reflect.ValueOf(item)
 					elem := val.Elem()
-					f1 := elem.FieldByName("updates")
-					f2 := elem.FieldByName("LastUpdate")
 
-					if f1.Int() > int64(c.config.CacheWriteLatencyCount) {
-						c.workerChan <- item
-					} else if f1.Int() > 0 &&
-						time.Since(f2.Interface().(time.Time)).Seconds() > float64(c.config.CacheWriteLatencyTime) {
-						c.workerChan <- item
-					}
-
-					res := val.MethodByName("TTLReached").Call([]reflect.Value{})
-					if res[0].Bool(){
-						fmt.Println("TTL Reached")
-						c.RemoveFromCache(n)
+					eme := elem.FieldByName("EmbedME")
+					if eme.IsValid() {
+						embedMe := eme.Interface().(EmbedME)
+						//fmt.Println("Hello morteeza Lass Access", embedMe.lastAccess)
+						if embedMe.updates > c.config.CacheWriteLatencyCount {
+							c.workerChan <- item
+						} else if embedMe.updates > 0 &&
+							time.Since(embedMe.lastUpdate).Seconds() > float64(c.config.CacheWriteLatencyTime) {
+							c.workerChan <- item
+						}
+						if embedMe.TTLReached() {
+							fmt.Println("TTL Reached")
+							c.RemoveFromCache(n)
+						}
 					}
 				}
 			}()
@@ -116,34 +118,35 @@ func (c *CacheContainer) getByLock(value interface{}) (interface{}, bool) {
 	r, ok := c.items[value]
 	return r, ok
 }
+func (c *CacheContainer)getValueStr(a ...interface{})  string{
+	var s []string
+	for _, item := range a{
+		s = append(s, fmt.Sprintf("%v", item))
+	}
+	return strings.Join(s, "-")
+}
 
-func (c *CacheContainer)Get(value interface{})interface{} {
-	if item, ok := c.getByLock(value); ok {
+func (c *CacheContainer)Get(values ...interface{})interface{} {
+	valStr := c.getValueStr(values...)
+	if item, ok := c.getByLock(valStr); ok {
 		return item
 	} else {
-		res := c.storage.Get(value)
+		res := c.storage.Get(values...)
 		elem := reflect.ValueOf(res).Elem()
 
 		if elem.Kind() == reflect.Struct {
-			f := elem.FieldByName("Container")
-			if f.IsValid() && f.CanSet() {
-				if f.Kind() == reflect.Ptr {
-					f.Set(reflect.ValueOf(c))
-				}
-			}
-			p := elem.FieldByName("Parent")
-			if p.IsValid() && p.CanSet() {
-				p.Set(reflect.ValueOf(res))
-			}
-
-			ex := elem.FieldByName("LastAccess")
-			if ex.IsValid() && ex.CanSet() {
-				ex.Set(reflect.ValueOf(time.Now()))
+			eme := elem.FieldByName("EmbedME")
+			if eme.IsValid() {
+				embedMe := eme.Interface().(EmbedME)
+				embedMe.lastAccess = time.Now()
+				embedMe.container = c
+				embedMe.parent = res
+				eme.Set(reflect.ValueOf(embedMe))
 			}
 		}
 		c.mu.Lock()
 		defer c.mu.Unlock()
-		c.items[value] = res
+		c.items[valStr] = res
 		return res
 	}
 }
@@ -174,27 +177,28 @@ func (c *CacheContainer)RemoveFromCache(name interface{}) {
 }
 
 type EmbedME struct {
-	Container  *CacheContainer
-	Parent     interface{}
+	container  *CacheContainer
+	parent     interface{}
 	updates    int
-	LastUpdate time.Time
-	LastAccess time.Time
+	lastUpdate time.Time
+	lastAccess time.Time
 	mu         sync.RWMutex
 }
 
 func (c *EmbedME)Inc(a interface{}) error{
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.Container.lockUpdate{
-		fmt.Println(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.Container.name))
-		return errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.Container.name))
+	if c.container.lockUpdate{
+		fmt.Println(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.container.name))
+		return errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.container.name))
 	}
 
 	c.updates ++
-	c.LastUpdate = time.Now()
-	c.LastAccess = time.Now()
-	if c.updates >= c.Container.config.CacheWriteLatencyCount {
-		c.Container.workerChan <- a
+	fmt.Println("irmorteza", time.Now())
+	c.lastUpdate = time.Now()
+	c.lastAccess = time.Now()
+	if c.updates >= c.container.config.CacheWriteLatencyCount {
+		c.container.workerChan <- a
 	}
 	return nil
 }
@@ -202,23 +206,23 @@ func (c *EmbedME)Inc(a interface{}) error{
 func (c *EmbedME)SetAccess() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.LastAccess = time.Now()
+	c.lastAccess = time.Now()
 }
 
 func (c *EmbedME)UpdateStorage() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.updates > 0 {
-		//fmt.Println("Let update, updates= ", c.updates)
-		c.Container.storage.Update(c.Parent)
-		c.Container.UpdatedCount += uint(c.updates)
+		fmt.Println("Let update, updates= ", c.updates)
+		c.container.storage.Update(c.parent)
+		c.container.UpdatedCount += uint(c.updates)
 		c.updates = 0
 	}
 }
 
 func (c *EmbedME)TTLReached() bool {
-	if c.Container.config.AccessTTL != 0 &&
-		int(time.Since(c.LastAccess).Seconds()) > c.Container.config.AccessTTL &&
+	if c.container.config.AccessTTL != 0 &&
+		int(time.Since(c.lastAccess).Seconds()) > c.container.config.AccessTTL &&
 		c.updates == 0 {
 		return true
 	} else {

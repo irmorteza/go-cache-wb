@@ -1,7 +1,7 @@
 package cachewb
 
 type Storage interface {
-	Get(key interface{}) interface{}
+	Get(key ...interface{}) interface{}
 	Update(in interface{})
 	Insert(in interface{}) interface{}
 	Remove(v interface{}) interface{}
