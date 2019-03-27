@@ -1,8 +1,8 @@
 
 # Golang Cache with write-behind strategy
-The cachewb is the cache with write behind starategy
+The go-cache-wb is the cache with write behind strategy
 
-Please read following links, to know more about caching sterategies   
+Please read following links, to know more about caching strategies
 - https://codeahoy.com/2017/08/11/caching-strategies-and-how-to-choose-the-right-one/
 - https://www.infoq.com/articles/write-behind-caching
 
