@@ -72,7 +72,7 @@ func (c *CacheContainer)workerMaintainer() {
 					eme := elem.FieldByName("EmbedME")
 					if eme.IsValid() {
 						embedMe := eme.Interface().(EmbedME)
-						//fmt.Println("Hello morteeza Lass Access", embedMe.lastAccess)
+						fmt.Println("Hello morteeza Lass Access", embedMe.lastAccess)
 						if embedMe.updates > c.config.CacheWriteLatencyCount {
 							c.workerChan <- item
 						} else if embedMe.updates > 0 &&
@@ -129,6 +129,15 @@ func (c *CacheContainer)getValueStr(a ...interface{})  string{
 func (c *CacheContainer)Get(values ...interface{})interface{} {
 	valStr := c.getValueStr(values...)
 	if item, ok := c.getByLock(valStr); ok {
+		elem := reflect.ValueOf(item).Elem()
+		if elem.Kind() == reflect.Struct {
+			eme := elem.FieldByName("EmbedME")
+			if eme.IsValid() {
+				embedMe := eme.Interface().(EmbedME)
+				embedMe.lastAccess = time.Now()
+				eme.Set(reflect.ValueOf(embedMe))
+			}
+		}
 		return item
 	} else {
 		res := c.storage.Get(values...)
@@ -194,7 +203,6 @@ func (c *EmbedME)Inc(a interface{}) error{
 	}
 
 	c.updates ++
-	fmt.Println("irmorteza", time.Now())
 	c.lastUpdate = time.Now()
 	c.lastAccess = time.Now()
 	if c.updates >= c.container.config.CacheWriteLatencyCount {
