@@ -27,7 +27,7 @@ CacheWB is the cache work in front of the storage, and does its CRUD actions on 
    - update: The fields will updates after an change on struct value. Its default is 1 (enable). `update:"1"`
    - autoInc: Incremental field in storage. autoInc are required if you want to use insert and update. this field doesn't involve (change) in update. `autoInc:"1"`
 2. **Add EmbedME:** Embed build-in struct `cachewb.EmbedME` to your struct  
-3. **Handle update actions by Create functions (property)**: For specific action (for example add to a field) create an function, in that function, first call `c.EmbedME.Inc(c)`. It would inform cachewb the change on one of its item.
+3. **Handle update actions by Create functions (property)**: For specific action (for example add to a field) create an function, in that function, first call `c.EmbedME.IncUpdate()`. It would inform cachewb, the change on one of its item.
 
 
 ### Supported storage (databases) 
@@ -55,7 +55,7 @@ type Members struct {
 }
 
 func (c *Members) AddCredit(a int64)  {
-	e := c.EmbedME.Inc(c)
+	e := c.EmbedME.IncUpdate()
 	if e != nil {
 		fmt.Println(e)
 		return

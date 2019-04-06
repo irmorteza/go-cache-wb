@@ -72,7 +72,7 @@ func (c *CacheContainer)workerMaintainer() {
 					eme := elem.FieldByName("EmbedME")
 					if eme.IsValid() {
 						embedMe := eme.Interface().(EmbedME)
-						fmt.Println("Hello morteeza Lass Access", embedMe.lastAccess)
+						//fmt.Println("Hello morteza Lass Access", embedMe.lastAccess)
 						if embedMe.updates > c.config.CacheWriteLatencyCount {
 							c.workerChan <- item
 						} else if embedMe.updates > 0 &&
@@ -194,7 +194,7 @@ type EmbedME struct {
 	mu         sync.RWMutex
 }
 
-func (c *EmbedME)Inc(a interface{}) error{
+func (c *EmbedME)IncUpdate() error{
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.container.lockUpdate{
@@ -206,7 +206,7 @@ func (c *EmbedME)Inc(a interface{}) error{
 	c.lastUpdate = time.Now()
 	c.lastAccess = time.Now()
 	if c.updates >= c.container.config.CacheWriteLatencyCount {
-		c.container.workerChan <- a
+		c.container.workerChan <- c.parent
 	}
 	return nil
 }
