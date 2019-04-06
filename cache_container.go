@@ -10,15 +10,17 @@ import (
 )
 
 type CacheContainer struct {
-	storage      Storage
-	config       Config
-	name         string // table name
-	lockUpdate   bool
-	UpdatedCount uint // TODO temp
-	itemType     interface{}
-	items        map[interface{}]interface{}
-	workerChan   chan interface{}
-	mu           sync.RWMutex
+	storage         Storage
+	config          Config
+	name            string // table name
+	lockUpdate      bool
+	UpdatedCount    uint // TODO temp
+	itemType        interface{}
+	items           map[interface{}]interface{}
+	itemsGroupIndex map[interface{}][]string
+	workerChan      chan interface{}
+	mu              sync.RWMutex
+	muIndex         sync.RWMutex
 }
 
 func newContainer(tbl string, cfg Config, containerType interface{}) *CacheContainer {
@@ -32,6 +34,7 @@ func newContainer(tbl string, cfg Config, containerType interface{}) *CacheConta
 	m.name = tbl
 	m.storage = newStorage(tbl, cfg, containerType)
 	m.items = make(map[interface{}]interface{})
+	m.itemsGroupIndex = make(map[interface{}][]string)
 	m.workerChan = make(chan interface{})
 	m.setManager()
 	return &m
@@ -118,6 +121,14 @@ func (c *CacheContainer) getByLock(value interface{}) (interface{}, bool) {
 	r, ok := c.items[value]
 	return r, ok
 }
+
+func (c *CacheContainer) getByLockFromGroupIndex(value interface{}) ([]string, bool) {
+	c.muIndex.Lock()
+	defer c.muIndex.Unlock()
+	r, ok := c.itemsGroupIndex[value]
+	return r, ok
+}
+
 func (c *CacheContainer)getValueStr(a ...interface{})  string{
 	var s []string
 	for _, item := range a{
@@ -140,7 +151,7 @@ func (c *CacheContainer)Get(values ...interface{})interface{} {
 		}
 		return item
 	} else {
-		res := c.storage.Get(values...)
+		res := c.storage.get(values...)
 		elem := reflect.ValueOf(res).Elem()
 
 		if elem.Kind() == reflect.Struct {
@@ -160,12 +171,50 @@ func (c *CacheContainer)Get(values ...interface{})interface{} {
 	}
 }
 
+func (c *CacheContainer)GetList(values ...interface{})[]interface{} {
+	valStr := c.getValueStr(values...)
+	if item, ok := c.getByLockFromGroupIndex(valStr); ok {
+		var a []interface{}
+		for _, jj := range item {
+			if v, ok := c.getByLock(jj); ok {
+				a = append(a, v)
+			}
+		}
+		return a
+	}else {
+		var a []interface{}
+		var b []string
+		res := c.storage.getList(values...)
+		c.mu.Lock()
+		defer c.mu.Unlock()			// TODO
+		for i, item :=range res{
+			elem := reflect.ValueOf(item).Elem()
+			if elem.Kind() == reflect.Struct {
+				eme := elem.FieldByName("EmbedME")
+				if eme.IsValid() {
+					embedMe := eme.Interface().(EmbedME)
+					embedMe.lastAccess = time.Now()
+					embedMe.container = c
+					embedMe.parent = item
+					eme.Set(reflect.ValueOf(embedMe))
+				}
+			}
+			a = append(a, item)
+			k := fmt.Sprintf("%s-multiRec-%d", valStr, i)
+			c.items[k] = item
+			b = append(b, k)
+		}
+		c.itemsGroupIndex[valStr] = b
+		return a
+	}
+}
+
 func (c *CacheContainer)Insert(in interface{})interface{} {
 	if c.lockUpdate{
 		fmt.Println(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
 		return nil
 	}
-	res := c.storage.Insert(in)
+	res := c.storage.insert(in)
 	return res
 }
 
@@ -175,7 +224,7 @@ func (c *CacheContainer)Remove(value interface{}) interface{}{
 		return nil
 	}
 	c.RemoveFromCache(value)
-	return c.storage.Remove(value)
+	return c.storage.remove(value)
 }
 
 func (c *CacheContainer)RemoveFromCache(name interface{}) {
@@ -222,7 +271,7 @@ func (c *EmbedME)UpdateStorage() {
 	defer c.mu.Unlock()
 	if c.updates > 0 {
 		fmt.Println("Let update, updates= ", c.updates)
-		c.container.storage.Update(c.parent)
+		c.container.storage.update(c.parent)
 		c.container.UpdatedCount += uint(c.updates)
 		c.updates = 0
 	}

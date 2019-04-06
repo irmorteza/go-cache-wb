@@ -17,7 +17,7 @@ type ConfigMysql struct {
 	MaxOpenConnection      int
 }
 
-type MySQL struct {
+type mySQL struct {
 	mysqlDB           *sql.DB
 	itemTemplate      interface{}
 	fieldsMap         map[string]string
@@ -31,15 +31,14 @@ type MySQL struct {
 	cfg               ConfigMysql
 }
 
-func newMySQL(tableName string, cfg ConfigMysql, itemTemplate interface{})  *MySQL{
-	m := &MySQL{cfg: cfg, tableName:tableName}
+func newMySQL(tableName string, cfg ConfigMysql, itemTemplate interface{})  *mySQL {
+	m := &mySQL{cfg: cfg, tableName:tableName}
 	m.itemTemplate = itemTemplate
-	m.ParseTemplate()
-	//m.TEEEEEEEEEEEEEEEEEEEEEEEEEEEMPvaluePtrs = make([]interface{}, 3)
+	m.parseTemplate()
 	return m
 }
 
-func (c *MySQL) ParseTemplate() {
+func (c *mySQL) parseTemplate() {
 	setClause := ""
 	selectClause := ""
 	whereClause := ""
@@ -109,7 +108,7 @@ func (c *MySQL) ParseTemplate() {
 	//fmt.Println(c.insertQueryFields)
 }
 
-func (c *MySQL) CheckConnection() {
+func (c *mySQL) checkConnection() {
 	if c.mysqlDB == nil {
 		qs := c.cfg.Username + ":" + c.cfg.Password + "@tcp(" + c.cfg.Host + ":" + strconv.Itoa(c.cfg.Port) + ")/" + c.cfg.DBName + "?parseTime=true"
 		var err error
@@ -121,10 +120,10 @@ func (c *MySQL) CheckConnection() {
 	}
 }
 
-func (c *MySQL) Get(key ...interface{}) interface{} {
+func (c *mySQL) get(key ...interface{}) interface{} {
 	val := reflect.New(reflect.TypeOf(c.itemTemplate))
 	elem := val.Elem()
-	c.CheckConnection()
+	c.checkConnection()
 
 	stmt, err := c.mysqlDB.Prepare(c.selectQuery)
 	if err != nil {
@@ -183,7 +182,72 @@ func (c *MySQL) Get(key ...interface{}) interface{} {
 	return val.Interface()
 }
 
-func (c *MySQL) Update(in interface{}) {
+func (c *mySQL) getList(key ...interface{}) []interface{} {
+	var resArr []interface{}
+	c.checkConnection()
+
+	stmt, err := c.mysqlDB.Prepare(c.selectQuery)
+	if err != nil {
+		panic(err)
+	}
+	defer stmt.Close()
+	rows, err := stmt.Query(key...)
+	if err != nil {
+		panic(err)
+	}
+
+	columns, _ := rows.Columns()
+	count := len(columns)
+	values := make([]interface{}, count)
+	valuePtrs := make([]interface{}, count)
+
+	for rows.Next() {
+		val := reflect.New(reflect.TypeOf(c.itemTemplate))
+		elem := val.Elem()
+
+		for i := range columns {
+			valuePtrs[i] = &values[i]
+		}
+		rows.Scan(valuePtrs...)
+		//fmt.Println(values)
+		for i, col := range columns {
+			val := values[i]
+			resByte , okByte := val.([]byte)
+			if elem.Kind() == reflect.Struct {
+				if c2, ok := c.fieldsMap[col]; ok {
+					f := elem.FieldByName(c2)
+					if f.IsValid() && f.CanSet() {
+						//fmt.Println("##### Consider me ", c2, f.Kind(), reflect.TypeOf(val), val)
+						if f.Kind() == reflect.Float64 {
+							if okByte {
+								//(float64) supported mysql data types : decimal
+								r, _ := strconv.ParseFloat(string(resByte), 64)
+								f.SetFloat(r)
+							}else {
+								//(float64) supported mysql data types : double, real
+								f.Set(reflect.ValueOf(val))
+							}
+						} else if f.Kind() == reflect.Slice {
+							// ([]byte) supported mysql data types : binary, tinyblob
+							f.Set(reflect.ValueOf(val))
+						} else if f.Kind() == reflect.String {
+							// (string) supported mysql data types :varchar, varbinary, tinytext
+							if okByte{
+								f.Set(reflect.ValueOf(string(resByte)))
+							}
+						} else {
+							f.Set(reflect.ValueOf(val))
+						}
+					}
+				}
+			}
+		}
+		resArr = append(resArr, val.Interface())
+	}
+	return resArr
+}
+
+func (c *mySQL) update(in interface{}) {
 	elem := reflect.ValueOf(in).Elem()
 
 	valuePtrs := make([]interface{}, 0)
@@ -194,7 +258,7 @@ func (c *MySQL) Update(in interface{}) {
 			valuePtrs = append(valuePtrs, zz.Interface())
 		}
 	}
-	c.CheckConnection()
+	c.checkConnection()
 	stmt, err := c.mysqlDB.Prepare(c.updateQuery)
 	if err != nil {
 		panic(err)
@@ -206,7 +270,7 @@ func (c *MySQL) Update(in interface{}) {
 	}
 }
 
-func (c *MySQL) Insert(in interface{}) interface{}{
+func (c *mySQL) insert(in interface{}) interface{}{
 	elem := reflect.ValueOf(in)
 
 	valuePtrs := make([]interface{}, 0)
@@ -218,7 +282,7 @@ func (c *MySQL) Insert(in interface{}) interface{}{
 		}
 	}
 	//fmt.Println(valuePtrs)
-	c.CheckConnection()
+	c.checkConnection()
 	stmt, err := c.mysqlDB.Prepare(c.insertQuery)
 	if err != nil {
 		panic(err)
@@ -234,9 +298,9 @@ func (c *MySQL) Insert(in interface{}) interface{}{
 	return m
 }
 
-func (c *MySQL) Remove(value interface{}) interface{}{
+func (c *mySQL) remove(value interface{}) interface{}{
 
-	c.CheckConnection()
+	c.checkConnection()
 	q := fmt.Sprintf(c.deleteQuery)
 	stmt, err := c.mysqlDB.Prepare(q)
 	if err != nil {
