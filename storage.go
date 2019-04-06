@@ -1,6 +1,6 @@
 package cachewb
 
-type Storage interface {
+type storage interface {
 	get(key ...interface{}) interface{}
 	getList(key ...interface{}) []interface{}
 	update(in interface{})
@@ -17,7 +17,7 @@ const (
 	SQL
 )
 
-func newStorage(tableName string, cfg Config, itemTemplate interface{}) Storage {
+func newStorage(tableName string, cfg Config, itemTemplate interface{}) storage {
 	if cfg.StorageName == MYSQL {
 		cfgMysql, ok := cfg.Database.(ConfigMysql)
 		if !ok {

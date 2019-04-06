@@ -2,12 +2,12 @@ package cachewb
 
 import "fmt"
 
-type Cache struct {
+type CacheWB struct {
 	containers map[string]*CacheContainer
 	config     Config
 }
 
-func (c *Cache) GetContainer(tableName string, objType interface{}) *CacheContainer{
+func (c *CacheWB) GetContainer(tableName string, objType interface{}) *CacheContainer{
 	if item, ok:= c.containers[tableName]; ok {
 		return item
 	}else {
@@ -17,13 +17,13 @@ func (c *Cache) GetContainer(tableName string, objType interface{}) *CacheContai
 	}
 }
 
-func (c *Cache) FlushAll(l bool) {
+func (c *CacheWB) FlushAll(l bool) {
 	for _, item := range c.containers {
 		item.Flush(l)
 	}
 }
 
-func (c *Cache) GracefulShutdown() bool{
+func (c *CacheWB) GracefulShutdown() bool{
 	fmt.Println("Start Graceful Shutdown")
 	for _, item := range c.containers {
 		fmt.Println("Graceful Shutdown, Flushing ", item.name)
@@ -44,8 +44,8 @@ type Config struct {
 	RestPort               int
 }
 
-func NewCacheWB(cfg Config) *Cache  {
-	s := &Cache{}
+func NewCacheWB(cfg Config) *CacheWB {
+	s := &CacheWB{}
 	s.config = cfg
 	s.containers = make(map[string]*CacheContainer)
 	return s

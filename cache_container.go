@@ -10,11 +10,10 @@ import (
 )
 
 type CacheContainer struct {
-	storage         Storage
+	storage         storage
 	config          Config
 	name            string // table name
 	lockUpdate      bool
-	UpdatedCount    uint // TODO temp
 	itemType        interface{}
 	items           map[interface{}]interface{}
 	itemsGroupIndex map[interface{}][]string
@@ -82,7 +81,7 @@ func (c *CacheContainer)workerMaintainer() {
 							time.Since(embedMe.lastUpdate).Seconds() > float64(c.config.CacheWriteLatencyTime) {
 							c.workerChan <- item
 						}
-						if embedMe.TTLReached() {
+						if embedMe.ttlReached() {
 							fmt.Println("TTL Reached")
 							c.RemoveFromCache(n)
 						}
@@ -260,24 +259,17 @@ func (c *EmbedME)IncUpdate() error{
 	return nil
 }
 
-func (c *EmbedME)SetAccess() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.lastAccess = time.Now()
-}
-
 func (c *EmbedME)UpdateStorage() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.updates > 0 {
 		fmt.Println("Let update, updates= ", c.updates)
 		c.container.storage.update(c.parent)
-		c.container.UpdatedCount += uint(c.updates)
 		c.updates = 0
 	}
 }
 
-func (c *EmbedME)TTLReached() bool {
+func (c *EmbedME) ttlReached() bool {
 	if c.container.config.AccessTTL != 0 &&
 		int(time.Since(c.lastAccess).Seconds()) > c.container.config.AccessTTL &&
 		c.updates == 0 {
