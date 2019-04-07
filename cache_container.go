@@ -136,7 +136,7 @@ func (c *CacheContainer)getValueStr(a ...interface{})  string{
 	return strings.Join(s, "-")
 }
 
-func (c *CacheContainer)Get(values ...interface{})interface{} {
+func (c *CacheContainer)Get(values ...interface{})(interface{}, error) {
 	valStr := c.getValueStr(values...)
 	if item, ok := c.getByLock(valStr); ok {
 		elem := reflect.ValueOf(item).Elem()
@@ -148,29 +148,30 @@ func (c *CacheContainer)Get(values ...interface{})interface{} {
 				eme.Set(reflect.ValueOf(embedMe))
 			}
 		}
-		return item
+		return item, nil
 	} else {
-		res := c.storage.get(values...)
-		elem := reflect.ValueOf(res).Elem()
-
-		if elem.Kind() == reflect.Struct {
-			eme := elem.FieldByName("EmbedME")
-			if eme.IsValid() {
-				embedMe := eme.Interface().(EmbedME)
-				embedMe.lastAccess = time.Now()
-				embedMe.container = c
-				embedMe.parent = res
-				eme.Set(reflect.ValueOf(embedMe))
+		res, e := c.storage.get(values...)
+		if e == nil {
+			elem := reflect.ValueOf(res).Elem()
+			if elem.Kind() == reflect.Struct {
+				eme := elem.FieldByName("EmbedME")
+				if eme.IsValid() {
+					embedMe := eme.Interface().(EmbedME)
+					embedMe.lastAccess = time.Now()
+					embedMe.container = c
+					embedMe.parent = res
+					eme.Set(reflect.ValueOf(embedMe))
+				}
 			}
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			c.items[valStr] = res
 		}
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		c.items[valStr] = res
-		return res
+		return res, e
 	}
 }
 
-func (c *CacheContainer)GetList(values ...interface{})[]interface{} {
+func (c *CacheContainer)GetList(values ...interface{})([]interface{}, error) {
 	valStr := c.getValueStr(values...)
 	if item, ok := c.getByLockFromGroupIndex(valStr); ok {
 		var a []interface{}
@@ -179,32 +180,34 @@ func (c *CacheContainer)GetList(values ...interface{})[]interface{} {
 				a = append(a, v)
 			}
 		}
-		return a
+		return a, nil
 	}else {
 		var a []interface{}
 		var b []string
-		res := c.storage.getList(values...)
-		c.mu.Lock()
-		defer c.mu.Unlock()			// TODO
-		for i, item :=range res{
-			elem := reflect.ValueOf(item).Elem()
-			if elem.Kind() == reflect.Struct {
-				eme := elem.FieldByName("EmbedME")
-				if eme.IsValid() {
-					embedMe := eme.Interface().(EmbedME)
-					embedMe.lastAccess = time.Now()
-					embedMe.container = c
-					embedMe.parent = item
-					eme.Set(reflect.ValueOf(embedMe))
+		res, e := c.storage.getList(values...)
+		if e == nil {
+			c.mu.Lock()
+			defer c.mu.Unlock()
+			for i, item := range res {
+				elem := reflect.ValueOf(item).Elem()
+				if elem.Kind() == reflect.Struct {
+					eme := elem.FieldByName("EmbedME")
+					if eme.IsValid() {
+						embedMe := eme.Interface().(EmbedME)
+						embedMe.lastAccess = time.Now()
+						embedMe.container = c
+						embedMe.parent = item
+						eme.Set(reflect.ValueOf(embedMe))
+					}
 				}
+				a = append(a, item)
+				k := fmt.Sprintf("%s-multiRec-%d", valStr, i)
+				c.items[k] = item
+				b = append(b, k)
 			}
-			a = append(a, item)
-			k := fmt.Sprintf("%s-multiRec-%d", valStr, i)
-			c.items[k] = item
-			b = append(b, k)
+			c.itemsGroupIndex[valStr] = b
 		}
-		c.itemsGroupIndex[valStr] = b
-		return a
+		return a, e
 	}
 }
 
@@ -217,20 +220,29 @@ func (c *CacheContainer)Insert(in interface{})interface{} {
 	return res
 }
 
-func (c *CacheContainer)Remove(value interface{}) interface{}{
+func (c *CacheContainer)Remove(values ...interface{}) (interface{}, error){
+	//valStr := c.getValueStr(values...)
 	if c.lockUpdate{
-		fmt.Println(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
-		return nil
+		return nil, errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
 	}
-	c.RemoveFromCache(value)
-	return c.storage.remove(value)
+	c.RemoveFromCache(values...)
+	return c.storage.remove(values...)
 }
 
-func (c *CacheContainer)RemoveFromCache(name interface{}) {
+func (c *CacheContainer)RemoveFromCache(values ...interface{}) {
+	valStr := c.getValueStr(values...)
 	if c.lockUpdate{
 		fmt.Println(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
 	}
-	delete(c.items, name)
+	if g, ok := c.getByLockFromGroupIndex(valStr); ok{
+		for _, m := range g {
+			delete(c.items, m)
+		}
+		delete(c.itemsGroupIndex, valStr)
+
+	}else{
+		delete(c.items, valStr)
+	}
 }
 
 type EmbedME struct {

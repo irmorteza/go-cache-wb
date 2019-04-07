@@ -1,6 +1,6 @@
 
-# Golang Cache with write-behind strategy
-The go-cache-wb is the cache with write behind strategy
+# Golang Cache with write-back strategy
+go-cache-wb is a cache with write back(behind) strategy
 
 Please read following links, to know more about caching strategies
 - https://codeahoy.com/2017/08/11/caching-strategies-and-how-to-choose-the-right-one/
@@ -81,8 +81,13 @@ func main() {
 
 	c := cachewb.NewCacheWB(cfg)
 	f := c.GetContainer("members", Members{})
-	out := f.Get("Morteza").(*Members)
-	fmt.Println(out)
+	res, e := f.Get("Morteza")
+	fmt.Println(e)
+	if e == nil {
+		out := res.(*Members)
+		fmt.Println(out)
+	}
+
 
 }
 ```

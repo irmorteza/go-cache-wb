@@ -2,6 +2,7 @@ package cachewb
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
 	"reflect"
@@ -28,6 +29,7 @@ type mySQL struct {
 	insertQuery       string
 	insertQueryFields []string
 	deleteQuery       string
+	whereFieldName []string
 	cfg               ConfigMysql
 }
 
@@ -45,7 +47,6 @@ func (c *mySQL) parseTemplate() {
 	//whereFieldName := ""
 	val1 := ""
 	val2 := ""
-	var whereFieldName []string
 	c.fieldsMap = make(map[string]string)
 	t := reflect.TypeOf(c.itemTemplate)
 	for i := 0; i < t.NumField(); i++ {
@@ -60,7 +61,7 @@ func (c *mySQL) parseTemplate() {
 			}
 			if f.Tag.Get("key") == "1" {
 				//whereFieldName = f.Name
-				whereFieldName = append(whereFieldName, f.Name)
+				c.whereFieldName = append(c.whereFieldName, f.Name)
 				if len(whereClause) > 0 {
 					whereClause = fmt.Sprintf("%s and %s = ?", whereClause, tag)
 				}else {
@@ -89,11 +90,11 @@ func (c *mySQL) parseTemplate() {
 		}
 	}
 
-	if len(whereFieldName) == 0{
+	if len(c.whereFieldName) == 0{
 		panic("Can't find Key")  		// TODO fix message
 	}
 
-	c.updateQueryFields = append(c.updateQueryFields, whereFieldName...)
+	c.updateQueryFields = append(c.updateQueryFields, c.whereFieldName...)
 
 	c.selectQuery = fmt.Sprintf("SELECT %s FROM %s WHERE %s;", selectClause, c.tableName, whereClause)
 	c.deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s;", c.tableName, whereClause)
@@ -120,7 +121,11 @@ func (c *mySQL) checkConnection() {
 	}
 }
 
-func (c *mySQL) get(key ...interface{}) interface{} {
+func (c *mySQL) get(args ...interface{}) (interface{}, error) {
+	if len(c.whereFieldName) != len(args){
+		return nil, errors.New(fmt.Sprintf("expected %d arguments, got %d", len(c.whereFieldName), len(args)))
+	}
+
 	val := reflect.New(reflect.TypeOf(c.itemTemplate))
 	elem := val.Elem()
 	c.checkConnection()
@@ -130,17 +135,21 @@ func (c *mySQL) get(key ...interface{}) interface{} {
 		panic(err)
 	}
 	defer stmt.Close()
-	rows, err := stmt.Query(key...)
+	rows, err := stmt.Query(args...)
 	if err != nil {
 		panic(err)
 	}
-
 	columns, _ := rows.Columns()
 	count := len(columns)
 	values := make([]interface{}, count)
 	valuePtrs := make([]interface{}, count)
 
+	cnt := 1
 	for rows.Next() {
+		if cnt > 1 {
+			return nil, errors.New("there are more than one row. please use GetList")
+		}
+		cnt ++
 		for i := range columns {
 			valuePtrs[i] = &values[i]
 		}
@@ -179,10 +188,14 @@ func (c *mySQL) get(key ...interface{}) interface{} {
 			}
 		}
 	}
-	return val.Interface()
+	return val.Interface(), nil
 }
 
-func (c *mySQL) getList(key ...interface{}) []interface{} {
+func (c *mySQL) getList(args ...interface{}) ([]interface{}, error) {
+	if len(c.whereFieldName) != len(args){
+		return nil, errors.New(fmt.Sprintf("expected %d arguments, got %d", len(c.whereFieldName), len(args)))
+	}
+
 	var resArr []interface{}
 	c.checkConnection()
 
@@ -191,7 +204,7 @@ func (c *mySQL) getList(key ...interface{}) []interface{} {
 		panic(err)
 	}
 	defer stmt.Close()
-	rows, err := stmt.Query(key...)
+	rows, err := stmt.Query(args...)
 	if err != nil {
 		panic(err)
 	}
@@ -204,7 +217,6 @@ func (c *mySQL) getList(key ...interface{}) []interface{} {
 	for rows.Next() {
 		val := reflect.New(reflect.TypeOf(c.itemTemplate))
 		elem := val.Elem()
-
 		for i := range columns {
 			valuePtrs[i] = &values[i]
 		}
@@ -244,7 +256,7 @@ func (c *mySQL) getList(key ...interface{}) []interface{} {
 		}
 		resArr = append(resArr, val.Interface())
 	}
-	return resArr
+	return resArr, nil
 }
 
 func (c *mySQL) update(in interface{}) {
@@ -298,8 +310,10 @@ func (c *mySQL) insert(in interface{}) interface{}{
 	return m
 }
 
-func (c *mySQL) remove(value interface{}) interface{}{
-
+func (c *mySQL) remove(args ...interface{}) (interface{}, error){
+	if len(c.whereFieldName) != len(args){
+		return nil, errors.New(fmt.Sprintf("expected %d arguments, got %d", len(c.whereFieldName), len(args)))
+	}
 	c.checkConnection()
 	q := fmt.Sprintf(c.deleteQuery)
 	stmt, err := c.mysqlDB.Prepare(q)
@@ -307,12 +321,12 @@ func (c *mySQL) remove(value interface{}) interface{}{
 		panic(err)
 	}
 	defer stmt.Close()
-	res, err := stmt.Exec(value)
+	res, err := stmt.Exec(args...)
 	if err != nil {
 		panic(err)
 	}
 	m := make(map[string]interface{})
 	m["LastInsertId"], _ = res.LastInsertId()
 	m["RowsAffected"], _ = res.RowsAffected()
-	return m
+	return m, nil
 }

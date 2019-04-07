@@ -1,11 +1,11 @@
 package cachewb
 
 type storage interface {
-	get(key ...interface{}) interface{}
-	getList(key ...interface{}) []interface{}
+	get(key ...interface{}) (interface{}, error)
+	getList(key ...interface{}) ([]interface{}, error)
 	update(in interface{})
 	insert(in interface{}) interface{}
-	remove(v interface{}) interface{}
+	remove(v ...interface{}) (interface{}, error)
 }
 
 type StorageKind uint
