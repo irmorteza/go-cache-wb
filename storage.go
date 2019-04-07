@@ -5,6 +5,7 @@ type storage interface {
 	getList(key ...interface{}) ([]interface{}, error)
 	update(in interface{})
 	insert(in interface{}) interface{}
+	insertMany(in ...interface{}) interface{}
 	remove(v ...interface{}) (interface{}, error)
 }
 
@@ -21,7 +22,7 @@ func newStorage(tableName string, cfg Config, itemTemplate interface{}) storage 
 	if cfg.StorageName == MYSQL {
 		cfgMysql, ok := cfg.Database.(ConfigMysql)
 		if !ok {
-			panic("mySQL configs, are not correct, Please check configs")
+			panic("mySQL config is not correct, please check configs")
 		}
 
 		return newMySQL(tableName, cfgMysql, itemTemplate)

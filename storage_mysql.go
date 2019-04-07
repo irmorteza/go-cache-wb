@@ -7,6 +7,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"reflect"
 	"strconv"
+	"strings"
 )
 
 type ConfigMysql struct {
@@ -19,24 +20,28 @@ type ConfigMysql struct {
 }
 
 type mySQL struct {
-	mysqlDB           *sql.DB
-	itemTemplate      interface{}
-	fieldsMap         map[string]string
-	tableName         string
-	selectQuery       string
-	updateQuery       string
-	updateQueryFields []string
-	insertQuery       string
-	insertQueryFields []string
-	deleteQuery       string
-	whereFieldName []string
-	cfg               ConfigMysql
+	mysqlDB              *sql.DB
+	itemTemplate         interface{}
+	fieldsMap            map[string]string
+	tableName            string
+	selectQuery          string
+	updateQuery          string
+	updateQueryFields    []string
+	insertQuery          string
+	insertManyQueryPart1 string
+	insertManyQueryPart2 string
+	insertQueryFields    []string
+	deleteQuery          string
+	whereFieldName       []string
+	cfg                  ConfigMysql
+	insertManyLimit      int
 }
 
 func newMySQL(tableName string, cfg ConfigMysql, itemTemplate interface{})  *mySQL {
-	m := &mySQL{cfg: cfg, tableName:tableName}
+	m := &mySQL{cfg: cfg, tableName: tableName}
 	m.itemTemplate = itemTemplate
 	m.parseTemplate()
+	m.insertManyLimit = 1000
 	return m
 }
 
@@ -100,6 +105,8 @@ func (c *mySQL) parseTemplate() {
 	c.deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s;", c.tableName, whereClause)
 	c.updateQuery = fmt.Sprintf("UPDATE %s SET %s WHERE %s;", c.tableName, setClause, whereClause)
 	c.insertQuery = fmt.Sprintf("INSERT INTO %s (%s) values (%s);", c.tableName, val1, val2)
+	c.insertManyQueryPart1 = fmt.Sprintf("INSERT INTO %s (%s) values ", c.tableName, val1)
+	c.insertManyQueryPart2 = fmt.Sprintf("(%s)", val2)
 
 	//fmt.Println(c.selectQuery)
 	//fmt.Println(c.deleteQuery)
@@ -296,6 +303,39 @@ func (c *mySQL) insert(in interface{}) interface{}{
 	//fmt.Println(valuePtrs)
 	c.checkConnection()
 	stmt, err := c.mysqlDB.Prepare(c.insertQuery)
+	if err != nil {
+		panic(err)
+	}
+	defer stmt.Close()
+	res, err := stmt.Exec(valuePtrs...)
+	if err != nil {
+		panic(err)
+	}
+	m := make(map[string]interface{})
+	m["LastInsertId"], _ = res.LastInsertId()
+	m["RowsAffected"], _ = res.RowsAffected()
+	return m
+}
+
+func (c *mySQL) insertMany(in ...interface{}) interface{} {
+	valuePtrs := make([]interface{}, 0)
+	var valueStrs []string
+
+	for _, d := range in {
+		valueStrs = append(valueStrs, c.insertManyQueryPart2)
+		elem := reflect.ValueOf(d)
+		for _, n := range c.insertQueryFields {
+			zz := elem.FieldByName(n)
+			if zz.IsValid() {
+				valuePtrs = append(valuePtrs, zz.Interface())
+			}
+		}
+	}
+
+	//fmt.Println(valuePtrs)
+	c.checkConnection()
+	q := fmt.Sprintf("%s %s", c.insertManyQueryPart1, strings.Join(valueStrs, ","))
+	stmt, err := c.mysqlDB.Prepare(q)
 	if err != nil {
 		panic(err)
 	}

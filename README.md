@@ -42,8 +42,6 @@ import (
 	"fmt"
 	"time"
 )
-
-)
 /*
 	CREATE TABLE members (
 	  id int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
