@@ -43,7 +43,17 @@ import (
 	"time"
 )
 
-
+)
+/*
+	CREATE TABLE members (
+	  id int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+	  name varchar(50) DEFAULT NULL,
+	  credit int(11) DEFAULT NULL,
+	  age smallint(6) DEFAULT NULL,
+	  lastTime datetime DEFAULT NULL,
+	  PRIMARY KEY (id)
+	)
+*/
 
 type Members struct {
 	cachewb.EmbedME
