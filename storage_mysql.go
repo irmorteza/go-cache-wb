@@ -11,12 +11,12 @@ import (
 )
 
 type ConfigMysql struct {
-	Host                   string
-	Username               string
-	Password               string
-	Port                   int
-	DBName                 string
-	MaxOpenConnection      int
+	Host              string
+	Username          string
+	Password          string
+	Port              int
+	DBName            string
+	MaxOpenConnection int
 }
 
 type mySQL struct {
@@ -27,7 +27,6 @@ type mySQL struct {
 	selectQuery          string
 	updateQuery          string
 	updateQueryFields    []string
-	//insertQuery          string
 	insertManyQueryPart1 string
 	insertManyQueryPart2 string
 	insertQueryFields    []string
@@ -37,7 +36,7 @@ type mySQL struct {
 	insertManyLimit      int
 }
 
-func newMySQL(tableName string, cfg ConfigMysql, itemTemplate interface{})  *mySQL {
+func newMySQL(tableName string, cfg ConfigMysql, itemTemplate interface{}) *mySQL {
 	m := &mySQL{cfg: cfg, tableName: tableName}
 	m.itemTemplate = itemTemplate
 	m.parseTemplate()
@@ -52,7 +51,6 @@ func (c *mySQL) parseTemplate() {
 	setClause := ""
 	selectClause := ""
 	whereClause := ""
-	//whereFieldName := ""
 	val1 := ""
 	val2 := ""
 	c.fieldsMap = make(map[string]string)
@@ -64,7 +62,7 @@ func (c *mySQL) parseTemplate() {
 			//fmt.Println("%%%%%%%%%%%%%%%%%%%", f.Type)
 			if len(selectClause) > 0 {
 				selectClause = fmt.Sprintf("%s, %s", selectClause, tag)
-			}else{
+			} else {
 				selectClause = fmt.Sprintf("%s", tag)
 			}
 			if f.Tag.Get("key") == "1" {
@@ -72,14 +70,14 @@ func (c *mySQL) parseTemplate() {
 				c.whereFieldName = append(c.whereFieldName, f.Name)
 				if len(whereClause) > 0 {
 					whereClause = fmt.Sprintf("%s and %s = ?", whereClause, tag)
-				}else {
+				} else {
 					whereClause = fmt.Sprintf("%s = ?", tag)
 				}
 			} else if f.Tag.Get("update") != "0" && f.Tag.Get("autoInc") != "1" {
 				c.updateQueryFields = append(c.updateQueryFields, f.Name)
 				if len(setClause) > 0 {
 					setClause = fmt.Sprintf("%s, %s = ?", setClause, tag)
-				}else{
+				} else {
 					setClause = fmt.Sprintf("%s = ?", tag)
 				}
 			}
@@ -89,7 +87,7 @@ func (c *mySQL) parseTemplate() {
 					if len(val1) > 0 {
 						val1 = fmt.Sprintf("%s, %s", val1, tag)
 						val2 = fmt.Sprintf("%s, ?", val2)
-					}else {
+					} else {
 						val1 = fmt.Sprintf("%s", tag)
 						val2 = fmt.Sprintf("?")
 					}
@@ -98,8 +96,8 @@ func (c *mySQL) parseTemplate() {
 		}
 	}
 
-	if len(c.whereFieldName) == 0{
-		panic("Can't find Key")  		// TODO fix message
+	if len(c.whereFieldName) == 0 {
+		panic("Can't find Key") // TODO fix message
 	}
 
 	c.updateQueryFields = append(c.updateQueryFields, c.whereFieldName...)
@@ -107,7 +105,6 @@ func (c *mySQL) parseTemplate() {
 	c.selectQuery = fmt.Sprintf("SELECT %s FROM %s WHERE %s;", selectClause, c.tableName, whereClause)
 	c.deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s;", c.tableName, whereClause)
 	c.updateQuery = fmt.Sprintf("UPDATE %s SET %s WHERE %s;", c.tableName, setClause, whereClause)
-	//c.insertQuery = fmt.Sprintf("INSERT INTO %s (%s) values (%s);", c.tableName, val1, val2)
 	c.insertManyQueryPart1 = fmt.Sprintf("INSERT INTO %s (%s) values ", c.tableName, val1)
 	c.insertManyQueryPart2 = fmt.Sprintf("(%s)", val2)
 
@@ -132,7 +129,7 @@ func (c *mySQL) checkConnection() {
 }
 
 func (c *mySQL) get(args ...interface{}) (interface{}, error) {
-	if len(c.whereFieldName) != len(args){
+	if len(c.whereFieldName) != len(args) {
 		return nil, errors.New(fmt.Sprintf("expected %d arguments, got %d", len(c.whereFieldName), len(args)))
 	}
 
@@ -167,7 +164,7 @@ func (c *mySQL) get(args ...interface{}) (interface{}, error) {
 		//fmt.Println(values)
 		for i, col := range columns {
 			val := values[i]
-			resByte , okByte := val.([]byte)
+			resByte, okByte := val.([]byte)
 			if elem.Kind() == reflect.Struct {
 				if c2, ok := c.fieldsMap[col]; ok {
 					f := elem.FieldByName(c2)
@@ -178,7 +175,7 @@ func (c *mySQL) get(args ...interface{}) (interface{}, error) {
 								//(float64) supported mysql data types : decimal
 								r, _ := strconv.ParseFloat(string(resByte), 64)
 								f.SetFloat(r)
-							}else {
+							} else {
 								//(float64) supported mysql data types : double, real
 								f.Set(reflect.ValueOf(val))
 							}
@@ -187,7 +184,7 @@ func (c *mySQL) get(args ...interface{}) (interface{}, error) {
 							f.Set(reflect.ValueOf(val))
 						} else if f.Kind() == reflect.String {
 							// (string) supported mysql data types :varchar, varbinary, tinytext
-							if okByte{
+							if okByte {
 								f.Set(reflect.ValueOf(string(resByte)))
 							}
 						} else {
@@ -202,7 +199,7 @@ func (c *mySQL) get(args ...interface{}) (interface{}, error) {
 }
 
 func (c *mySQL) getList(args ...interface{}) ([]interface{}, error) {
-	if len(c.whereFieldName) != len(args){
+	if len(c.whereFieldName) != len(args) {
 		return nil, errors.New(fmt.Sprintf("expected %d arguments, got %d", len(c.whereFieldName), len(args)))
 	}
 
@@ -234,7 +231,7 @@ func (c *mySQL) getList(args ...interface{}) ([]interface{}, error) {
 		//fmt.Println(values)
 		for i, col := range columns {
 			val := values[i]
-			resByte , okByte := val.([]byte)
+			resByte, okByte := val.([]byte)
 			if elem.Kind() == reflect.Struct {
 				if c2, ok := c.fieldsMap[col]; ok {
 					f := elem.FieldByName(c2)
@@ -245,7 +242,7 @@ func (c *mySQL) getList(args ...interface{}) ([]interface{}, error) {
 								//(float64) supported mysql data types : decimal
 								r, _ := strconv.ParseFloat(string(resByte), 64)
 								f.SetFloat(r)
-							}else {
+							} else {
 								//(float64) supported mysql data types : double, real
 								f.Set(reflect.ValueOf(val))
 							}
@@ -254,7 +251,7 @@ func (c *mySQL) getList(args ...interface{}) ([]interface{}, error) {
 							f.Set(reflect.ValueOf(val))
 						} else if f.Kind() == reflect.String {
 							// (string) supported mysql data types :varchar, varbinary, tinytext
-							if okByte{
+							if okByte {
 								f.Set(reflect.ValueOf(string(resByte)))
 							}
 						} else {
@@ -274,9 +271,9 @@ func (c *mySQL) update(in interface{}) {
 
 	valuePtrs := make([]interface{}, 0)
 
-	for _, n:=range c.updateQueryFields {
+	for _, n := range c.updateQueryFields {
 		zz := elem.FieldByName(n)
-		if zz.IsValid(){
+		if zz.IsValid() {
 			valuePtrs = append(valuePtrs, zz.Interface())
 		}
 	}
@@ -293,7 +290,7 @@ func (c *mySQL) update(in interface{}) {
 }
 
 func (c *mySQL) insert(args ...interface{}) (interface{}, error) {
-	if len(args) > c.insertManyLimit{
+	if len(args) > c.insertManyLimit {
 		return nil, errors.New(fmt.Sprintf("unable to insert more than limit %d, got %d", c.insertManyLimit, len(args)))
 	}
 	valuePtrs := make([]interface{}, 0)
@@ -327,8 +324,8 @@ func (c *mySQL) insert(args ...interface{}) (interface{}, error) {
 	return m, nil
 }
 
-func (c *mySQL) remove(args ...interface{}) (interface{}, error){
-	if len(c.whereFieldName) != len(args){
+func (c *mySQL) remove(args ...interface{}) (interface{}, error) {
+	if len(c.whereFieldName) != len(args) {
 		return nil, errors.New(fmt.Sprintf("expected %d arguments, got %d", len(c.whereFieldName), len(args)))
 	}
 	c.checkConnection()

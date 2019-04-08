@@ -7,10 +7,10 @@ type CacheWB struct {
 	config     Config
 }
 
-func (c *CacheWB) GetContainer(tableName string, objType interface{}) *CacheContainer{
-	if item, ok:= c.containers[tableName]; ok {
+func (c *CacheWB) GetContainer(tableName string, objType interface{}) *CacheContainer {
+	if item, ok := c.containers[tableName]; ok {
 		return item
-	}else {
+	} else {
 		m := newContainer(tableName, c.config, objType)
 		c.containers[tableName] = m
 		return m
@@ -23,7 +23,7 @@ func (c *CacheWB) FlushAll(l bool) {
 	}
 }
 
-func (c *CacheWB) GracefulShutdown() bool{
+func (c *CacheWB) GracefulShutdown() bool {
 	fmt.Println("Start Graceful Shutdown")
 	for _, item := range c.containers {
 		fmt.Println("Graceful Shutdown, Flushing ", item.name)

@@ -18,7 +18,7 @@ type CacheContainer struct {
 	items           map[interface{}]interface{}
 	itemsGroupIndex map[interface{}][]string
 	chanUpdates     chan interface{}
-	chanInserts 	chan interface{}
+	chanInserts     chan interface{}
 	mu              sync.RWMutex
 	muIndex         sync.RWMutex
 	muQ             sync.RWMutex
@@ -27,8 +27,8 @@ type CacheContainer struct {
 func newContainer(tbl string, cfg Config, containerType interface{}) *CacheContainer {
 	var m CacheContainer
 	t := reflect.TypeOf(containerType)
-	if t.NumField() == 0 || t.Field(0).Name != "EmbedME"{
-		panic(fmt.Sprintf("Coundn't find 'EmbedME' in %s. Please Add 'cachewb.EmbedME' at top of %s" , t.Name(), t.Name()))
+	if t.NumField() == 0 || t.Field(0).Name != "EmbedME" {
+		panic(fmt.Sprintf("Coundn't find 'EmbedME' in %s. Please Add 'cachewb.EmbedME' at top of %s", t.Name(), t.Name()))
 	}
 	m.itemType = containerType
 	m.config = cfg
@@ -42,7 +42,7 @@ func newContainer(tbl string, cfg Config, containerType interface{}) *CacheConta
 	return &m
 }
 
-func (c *CacheContainer)setManager(){
+func (c *CacheContainer) setManager() {
 	go c.workerConsumerUpdater()
 	go c.workerMaintainer()
 	go c.workerInserts()
@@ -57,7 +57,7 @@ func (c *CacheContainer) addToChanUpdates(a interface{}) error {
 	}
 }
 
-func (c *CacheContainer)addToChanInserts(a interface{}) error {
+func (c *CacheContainer) addToChanInserts(a interface{}) error {
 	select {
 	case c.chanInserts <- a:
 		return nil
@@ -66,17 +66,17 @@ func (c *CacheContainer)addToChanInserts(a interface{}) error {
 	}
 }
 
-func (c *CacheContainer)workerConsumerUpdater() {
+func (c *CacheContainer) workerConsumerUpdater() {
 	for {
 		select {
 		case item := <-c.chanUpdates:
-			fmt.Println("Hello Worker. I want update:" , item)
+			fmt.Println("Hello Worker. I want update:", item)
 			reflect.ValueOf(item).MethodByName("UpdateStorage").Call([]reflect.Value{})
 		}
 	}
 }
 
-func (c *CacheContainer)workerMaintainer() {
+func (c *CacheContainer) workerMaintainer() {
 	for {
 		t := time.After(time.Second * time.Duration(c.config.Interval))
 		select {
@@ -99,14 +99,14 @@ func (c *CacheContainer)workerMaintainer() {
 						//fmt.Println("Hello morteza Lass Access", embedMe.lastAccess)
 						if embedMe.updates > c.config.CacheWriteLatencyCount {
 							e := c.addToChanUpdates(item)
-							if e !=nil{
+							if e != nil {
 								// TODO  handle error
 							}
 
 						} else if embedMe.updates > 0 &&
 							time.Since(embedMe.lastUpdate).Seconds() > float64(c.config.CacheWriteLatencyTime) {
 							e := c.addToChanUpdates(item)
-							if e !=nil{
+							if e != nil {
 								// TODO  handle error
 							}
 
@@ -129,7 +129,7 @@ func (c *CacheContainer) workerInserts() {
 		t := time.After(time.Second * time.Duration(c.config.Interval))
 		select {
 		case <-t:
-			if len(buffer) > 0{
+			if len(buffer) > 0 {
 				res, e := c.storage.insert(buffer...)
 				fmt.Println(fmt.Sprintf("workerInserts found %d items. res:%s , error:%s", len(buffer), res, e))
 				buffer = make([]interface{}, 0)
@@ -137,7 +137,7 @@ func (c *CacheContainer) workerInserts() {
 
 		case item := <-c.chanInserts:
 			buffer = append(buffer, item.([]interface{})...)
-			if len(buffer) >= c.storage.getInsertLimit(){
+			if len(buffer) >= c.storage.getInsertLimit() {
 				res, e := c.storage.insert(buffer...)
 				fmt.Println(fmt.Sprintf("workerInserts found %d items. res:%s , error:%s", len(buffer), res, e))
 				buffer = make([]interface{}, 0)
@@ -182,15 +182,15 @@ func (c *CacheContainer) getByLockFromGroupIndex(value interface{}) ([]string, b
 	return r, ok
 }
 
-func (c *CacheContainer)getValueStr(a ...interface{})  string{
+func (c *CacheContainer) getValueStr(a ...interface{}) string {
 	var s []string
-	for _, item := range a{
+	for _, item := range a {
 		s = append(s, fmt.Sprintf("%v", item))
 	}
 	return strings.Join(s, "-")
 }
 
-func (c *CacheContainer)Get(values ...interface{})(interface{}, error) {
+func (c *CacheContainer) Get(values ...interface{}) (interface{}, error) {
 	valStr := c.getValueStr(values...)
 	if item, ok := c.getByLock(valStr); ok {
 		elem := reflect.ValueOf(item).Elem()
@@ -225,7 +225,7 @@ func (c *CacheContainer)Get(values ...interface{})(interface{}, error) {
 	}
 }
 
-func (c *CacheContainer)GetList(values ...interface{})([]interface{}, error) {
+func (c *CacheContainer) GetList(values ...interface{}) ([]interface{}, error) {
 	valStr := c.getValueStr(values...)
 	if item, ok := c.getByLockFromGroupIndex(valStr); ok {
 		var a []interface{}
@@ -235,7 +235,7 @@ func (c *CacheContainer)GetList(values ...interface{})([]interface{}, error) {
 			}
 		}
 		return a, nil
-	}else {
+	} else {
 		var a []interface{}
 		var b []string
 		res, e := c.storage.getList(values...)
@@ -265,38 +265,38 @@ func (c *CacheContainer)GetList(values ...interface{})([]interface{}, error) {
 	}
 }
 
-func (c *CacheContainer)Insert(in ...interface{}) (interface{}, error) {
-	if c.lockUpdate{
+func (c *CacheContainer) Insert(in ...interface{}) (interface{}, error) {
+	if c.lockUpdate {
 		return nil, errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
 	}
 	return c.storage.insert(in...)
 }
 
-func (c *CacheContainer)InsertAsync(in ...interface{}) {
+func (c *CacheContainer) InsertAsync(in ...interface{}) {
 	go c.addToChanInserts(in)
 }
 
-func (c *CacheContainer)Remove(values ...interface{}) (interface{}, error){
+func (c *CacheContainer) Remove(values ...interface{}) (interface{}, error) {
 	//valStr := c.getValueStr(values...)
-	if c.lockUpdate{
+	if c.lockUpdate {
 		return nil, errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
 	}
 	c.RemoveFromCache(values...)
 	return c.storage.remove(values...)
 }
 
-func (c *CacheContainer)RemoveFromCache(values ...interface{}) {
+func (c *CacheContainer) RemoveFromCache(values ...interface{}) {
 	valStr := c.getValueStr(values...)
-	if c.lockUpdate{
+	if c.lockUpdate {
 		fmt.Println(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
 	}
-	if g, ok := c.getByLockFromGroupIndex(valStr); ok{
+	if g, ok := c.getByLockFromGroupIndex(valStr); ok {
 		for _, m := range g {
 			delete(c.items, m)
 		}
 		delete(c.itemsGroupIndex, valStr)
 
-	}else{
+	} else {
 		delete(c.items, valStr)
 	}
 }
@@ -310,10 +310,10 @@ type EmbedME struct {
 	mu         sync.RWMutex
 }
 
-func (c *EmbedME)IncUpdate() error{
+func (c *EmbedME) IncUpdate() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.container.lockUpdate{
+	if c.container.lockUpdate {
 		fmt.Println(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.container.name))
 		return errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.container.name))
 	}
@@ -327,7 +327,7 @@ func (c *EmbedME)IncUpdate() error{
 	return nil
 }
 
-func (c *EmbedME)UpdateStorage() {
+func (c *EmbedME) UpdateStorage() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.updates > 0 {

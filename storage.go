@@ -26,7 +26,7 @@ func newStorage(tableName string, cfg Config, itemTemplate interface{}) storage 
 		}
 
 		return newMySQL(tableName, cfgMysql, itemTemplate)
-	}else{
+	} else {
 		panic("Unknown Storage !")
 	}
 
