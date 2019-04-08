@@ -211,22 +211,11 @@ func (c *CacheContainer)GetList(values ...interface{})([]interface{}, error) {
 	}
 }
 
-func (c *CacheContainer)Insert(in interface{})interface{} {
+func (c *CacheContainer)Insert(in ...interface{}) (interface{}, error) {
 	if c.lockUpdate{
-		fmt.Println(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
-		return nil
+		return nil, errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
 	}
-	res := c.storage.insert(in)
-	return res
-}
-
-func (c *CacheContainer)InsertMany(in ...interface{})interface{} {
-	if c.lockUpdate{
-		fmt.Println(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
-		return nil
-	}
-	res := c.storage.insertMany(in...)
-	return res
+	return c.storage.insert(in...)
 }
 
 func (c *CacheContainer)Remove(values ...interface{}) (interface{}, error){

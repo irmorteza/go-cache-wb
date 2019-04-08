@@ -27,7 +27,7 @@ type mySQL struct {
 	selectQuery          string
 	updateQuery          string
 	updateQueryFields    []string
-	insertQuery          string
+	//insertQuery          string
 	insertManyQueryPart1 string
 	insertManyQueryPart2 string
 	insertQueryFields    []string
@@ -104,7 +104,7 @@ func (c *mySQL) parseTemplate() {
 	c.selectQuery = fmt.Sprintf("SELECT %s FROM %s WHERE %s;", selectClause, c.tableName, whereClause)
 	c.deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s;", c.tableName, whereClause)
 	c.updateQuery = fmt.Sprintf("UPDATE %s SET %s WHERE %s;", c.tableName, setClause, whereClause)
-	c.insertQuery = fmt.Sprintf("INSERT INTO %s (%s) values (%s);", c.tableName, val1, val2)
+	//c.insertQuery = fmt.Sprintf("INSERT INTO %s (%s) values (%s);", c.tableName, val1, val2)
 	c.insertManyQueryPart1 = fmt.Sprintf("INSERT INTO %s (%s) values ", c.tableName, val1)
 	c.insertManyQueryPart2 = fmt.Sprintf("(%s)", val2)
 
@@ -289,39 +289,14 @@ func (c *mySQL) update(in interface{}) {
 	}
 }
 
-func (c *mySQL) insert(in interface{}) interface{}{
-	elem := reflect.ValueOf(in)
-
-	valuePtrs := make([]interface{}, 0)
-
-	for _, n:=range c.insertQueryFields {
-		zz := elem.FieldByName(n)
-		if zz.IsValid(){
-			valuePtrs = append(valuePtrs, zz.Interface())
-		}
+func (c *mySQL) insert(args ...interface{}) (interface{}, error) {
+	if len(args) > c.insertManyLimit{
+		return nil, errors.New(fmt.Sprintf("unable to insert more than limit %d, got %d", c.insertManyLimit, len(args)))
 	}
-	//fmt.Println(valuePtrs)
-	c.checkConnection()
-	stmt, err := c.mysqlDB.Prepare(c.insertQuery)
-	if err != nil {
-		panic(err)
-	}
-	defer stmt.Close()
-	res, err := stmt.Exec(valuePtrs...)
-	if err != nil {
-		panic(err)
-	}
-	m := make(map[string]interface{})
-	m["LastInsertId"], _ = res.LastInsertId()
-	m["RowsAffected"], _ = res.RowsAffected()
-	return m
-}
-
-func (c *mySQL) insertMany(in ...interface{}) interface{} {
 	valuePtrs := make([]interface{}, 0)
 	var valueStrs []string
 
-	for _, d := range in {
+	for _, d := range args {
 		valueStrs = append(valueStrs, c.insertManyQueryPart2)
 		elem := reflect.ValueOf(d)
 		for _, n := range c.insertQueryFields {
@@ -332,7 +307,6 @@ func (c *mySQL) insertMany(in ...interface{}) interface{} {
 		}
 	}
 
-	//fmt.Println(valuePtrs)
 	c.checkConnection()
 	q := fmt.Sprintf("%s %s", c.insertManyQueryPart1, strings.Join(valueStrs, ","))
 	stmt, err := c.mysqlDB.Prepare(q)
@@ -347,7 +321,7 @@ func (c *mySQL) insertMany(in ...interface{}) interface{} {
 	m := make(map[string]interface{})
 	m["LastInsertId"], _ = res.LastInsertId()
 	m["RowsAffected"], _ = res.RowsAffected()
-	return m
+	return m, nil
 }
 
 func (c *mySQL) remove(args ...interface{}) (interface{}, error){

@@ -4,8 +4,7 @@ type storage interface {
 	get(key ...interface{}) (interface{}, error)
 	getList(key ...interface{}) ([]interface{}, error)
 	update(in interface{})
-	insert(in interface{}) interface{}
-	insertMany(in ...interface{}) interface{}
+	insert(in ...interface{}) (interface{}, error)
 	remove(v ...interface{}) (interface{}, error)
 }
 
