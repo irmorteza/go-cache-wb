@@ -17,9 +17,11 @@ type CacheContainer struct {
 	itemType        interface{}
 	items           map[interface{}]interface{}
 	itemsGroupIndex map[interface{}][]string
-	workerChan      chan interface{}
+	chanUpdates     chan interface{}
+	chanInserts 	chan interface{}
 	mu              sync.RWMutex
 	muIndex         sync.RWMutex
+	muQ             sync.RWMutex
 }
 
 func newContainer(tbl string, cfg Config, containerType interface{}) *CacheContainer {
@@ -34,7 +36,8 @@ func newContainer(tbl string, cfg Config, containerType interface{}) *CacheConta
 	m.storage = newStorage(tbl, cfg, containerType)
 	m.items = make(map[interface{}]interface{})
 	m.itemsGroupIndex = make(map[interface{}][]string)
-	m.workerChan = make(chan interface{})
+	m.chanUpdates = make(chan interface{}, 1000)
+	m.chanInserts = make(chan interface{}, 10000)
 	m.setManager()
 	return &m
 }
@@ -42,12 +45,31 @@ func newContainer(tbl string, cfg Config, containerType interface{}) *CacheConta
 func (c *CacheContainer)setManager(){
 	go c.workerConsumerUpdater()
 	go c.workerMaintainer()
+	go c.workerInserts()
+}
+
+func (c *CacheContainer) addToChanUpdates(a interface{}) error {
+	select {
+	case c.chanUpdates <- a:
+		return nil
+	default:
+		return errors.New(fmt.Sprintf("channel of updates is full, so following item will be lost! %s", a))
+	}
+}
+
+func (c *CacheContainer)addToChanInserts(a interface{}) error {
+	select {
+	case c.chanInserts <- a:
+		return nil
+	default:
+		return errors.New(fmt.Sprintf("Channel of inserts is full, So following item will be lost! %s", a))
+	}
 }
 
 func (c *CacheContainer)workerConsumerUpdater() {
 	for {
 		select {
-		case item := <-c.workerChan:
+		case item := <-c.chanUpdates:
 			fmt.Println("Hello Worker. I want update:" , item)
 			reflect.ValueOf(item).MethodByName("UpdateStorage").Call([]reflect.Value{})
 		}
@@ -76,10 +98,18 @@ func (c *CacheContainer)workerMaintainer() {
 						embedMe := eme.Interface().(EmbedME)
 						//fmt.Println("Hello morteza Lass Access", embedMe.lastAccess)
 						if embedMe.updates > c.config.CacheWriteLatencyCount {
-							c.workerChan <- item
+							e := c.addToChanUpdates(item)
+							if e !=nil{
+								// TODO  handle error
+							}
+
 						} else if embedMe.updates > 0 &&
 							time.Since(embedMe.lastUpdate).Seconds() > float64(c.config.CacheWriteLatencyTime) {
-							c.workerChan <- item
+							e := c.addToChanUpdates(item)
+							if e !=nil{
+								// TODO  handle error
+							}
+
 						}
 						if embedMe.ttlReached() {
 							fmt.Println("TTL Reached")
@@ -88,6 +118,30 @@ func (c *CacheContainer)workerMaintainer() {
 					}
 				}
 			}()
+		}
+	}
+}
+
+func (c *CacheContainer) workerInserts() {
+	var buffer []interface{}
+	buffer = make([]interface{}, 0)
+	for {
+		t := time.After(time.Second * time.Duration(c.config.Interval))
+		select {
+		case <-t:
+			if len(buffer) > 0{
+				res, e := c.storage.insert(buffer...)
+				fmt.Println(fmt.Sprintf("workerInserts found %d items. res:%s , error:%s", len(buffer), res, e))
+				buffer = make([]interface{}, 0)
+			}
+
+		case item := <-c.chanInserts:
+			buffer = append(buffer, item.([]interface{})...)
+			if len(buffer) >= c.storage.getInsertLimit(){
+				res, e := c.storage.insert(buffer...)
+				fmt.Println(fmt.Sprintf("workerInserts found %d items. res:%s , error:%s", len(buffer), res, e))
+				buffer = make([]interface{}, 0)
+			}
 		}
 	}
 }
@@ -218,6 +272,10 @@ func (c *CacheContainer)Insert(in ...interface{}) (interface{}, error) {
 	return c.storage.insert(in...)
 }
 
+func (c *CacheContainer)InsertAsync(in ...interface{}) {
+	go c.addToChanInserts(in)
+}
+
 func (c *CacheContainer)Remove(values ...interface{}) (interface{}, error){
 	//valStr := c.getValueStr(values...)
 	if c.lockUpdate{
@@ -264,7 +322,7 @@ func (c *EmbedME)IncUpdate() error{
 	c.lastUpdate = time.Now()
 	c.lastAccess = time.Now()
 	if c.updates >= c.container.config.CacheWriteLatencyCount {
-		c.container.workerChan <- c.parent
+		c.container.chanUpdates <- c.parent
 	}
 	return nil
 }

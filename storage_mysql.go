@@ -44,6 +44,9 @@ func newMySQL(tableName string, cfg ConfigMysql, itemTemplate interface{})  *myS
 	m.insertManyLimit = 1000
 	return m
 }
+func (c *mySQL) getInsertLimit() int {
+	return c.insertManyLimit
+}
 
 func (c *mySQL) parseTemplate() {
 	setClause := ""

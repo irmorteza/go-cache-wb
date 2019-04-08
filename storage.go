@@ -6,6 +6,7 @@ type storage interface {
 	update(in interface{})
 	insert(in ...interface{}) (interface{}, error)
 	remove(v ...interface{}) (interface{}, error)
+	getInsertLimit() int
 }
 
 type StorageKind uint
