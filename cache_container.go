@@ -146,10 +146,10 @@ func (c *CacheContainer) workerInserts() {
 	}
 }
 
-func (c *CacheContainer) Flush(l bool) {
+func (c *CacheContainer) Flush(withLock bool) {
 	c.mu.Lock()
 	defer func() {
-		if l {
+		if withLock {
 			c.lockUpdate = false
 		}
 		c.mu.Unlock()
@@ -190,6 +190,10 @@ func (c *CacheContainer) getValueStr(a ...interface{}) string {
 	return strings.Join(s, "-")
 }
 
+// Return an object from cache. This method check cache first,
+// and then look in the database if not found
+// It return result for values, if it was one, if there were
+// more than one result, you should use GetList()
 func (c *CacheContainer) Get(values ...interface{}) (interface{}, error) {
 	valStr := c.getValueStr(values...)
 	if item, ok := c.getByLock(valStr); ok {
@@ -225,6 +229,7 @@ func (c *CacheContainer) Get(values ...interface{}) (interface{}, error) {
 	}
 }
 
+// like Get, but it return array of object
 func (c *CacheContainer) GetList(values ...interface{}) ([]interface{}, error) {
 	valStr := c.getValueStr(values...)
 	if item, ok := c.getByLockFromGroupIndex(valStr); ok {
@@ -265,6 +270,7 @@ func (c *CacheContainer) GetList(values ...interface{}) ([]interface{}, error) {
 	}
 }
 
+// Insert object(s) to container. the object will add to database synchronously,
 func (c *CacheContainer) Insert(in ...interface{}) (interface{}, error) {
 	if c.lockUpdate {
 		return nil, errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
@@ -272,6 +278,7 @@ func (c *CacheContainer) Insert(in ...interface{}) (interface{}, error) {
 	return c.storage.insert(in...)
 }
 
+// Asynchronously insert object(s) to container. the object will bulk insert to database.
 func (c *CacheContainer) InsertAsync(in ...interface{}) {
 	go c.addToChanInserts(in)
 }
