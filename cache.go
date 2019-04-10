@@ -54,6 +54,7 @@ type Config struct {
 	Database               interface{}
 	// Maximum time, an object keep in cache after last access
 	AccessTTL              int
+	AsyncInsertLatency     int
 }
 
 // Get an CacheWB variable

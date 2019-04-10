@@ -9,6 +9,7 @@ import (
 	"time"
 )
 
+const AsyncInsertLatency  = 5
 type CacheContainer struct {
 	storage         storage
 	config          Config
@@ -32,6 +33,10 @@ func newContainer(tbl string, cfg Config, containerType interface{}) *CacheConta
 	}
 	m.itemType = containerType
 	m.config = cfg
+	// set default values of config
+	if m.config.AsyncInsertLatency == 0{
+		m.config.AsyncInsertLatency = AsyncInsertLatency
+	}
 	m.name = tbl
 	m.storage = newStorage(tbl, cfg, containerType)
 	m.items = make(map[interface{}]interface{})
@@ -125,7 +130,16 @@ func (c *CacheContainer) workerMaintainer() {
 func (c *CacheContainer) workerInserts() {
 	var buffer []interface{}
 	buffer = make([]interface{}, 0)
+	ft := time.Now()
 	for {
+		fmt.Println(time.Since(ft).Seconds(), c.config.AsyncInsertLatency)
+		if len(buffer) > 0 && time.Since(ft).Seconds() > 1 {
+			res, e := c.storage.insert(buffer...)
+			fmt.Println(fmt.Sprintf("workerInserts  found %d items. res:%s , error:%s", len(buffer), res, e))
+			buffer = make([]interface{}, 0)
+
+		}
+
 		t := time.After(time.Second * time.Duration(c.config.Interval))
 		select {
 		case <-t:
@@ -137,6 +151,9 @@ func (c *CacheContainer) workerInserts() {
 
 		case item := <-c.chanInserts:
 			buffer = append(buffer, item.([]interface{})...)
+			if len(buffer) == 1 {
+				ft = time.Now()
+			}
 			if len(buffer) >= c.storage.getInsertLimit() {
 				res, e := c.storage.insert(buffer...)
 				fmt.Println(fmt.Sprintf("workerInserts found %d items. res:%s , error:%s", len(buffer), res, e))
@@ -146,6 +163,7 @@ func (c *CacheContainer) workerInserts() {
 	}
 }
 
+
 func (c *CacheContainer) Flush(withLock bool) {
 	c.mu.Lock()
 	defer func() {
@@ -154,7 +172,7 @@ func (c *CacheContainer) Flush(withLock bool) {
 		}
 		c.mu.Unlock()
 	}()
-	if l {
+	if withLock {
 		c.lockUpdate = true
 	}
 	for _, item := range c.items {
