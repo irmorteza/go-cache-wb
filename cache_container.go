@@ -132,7 +132,6 @@ func (c *CacheContainer) workerInserts() {
 	buffer = make([]interface{}, 0)
 	ft := time.Now()
 	for {
-		fmt.Println(time.Since(ft).Seconds(), c.config.AsyncInsertLatency)
 		if len(buffer) > 0 && time.Since(ft).Seconds() > 1 {
 			res, e := c.storage.insert(buffer...)
 			fmt.Println(fmt.Sprintf("workerInserts  found %d items. res:%s , error:%s", len(buffer), res, e))
