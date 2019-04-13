@@ -22,7 +22,6 @@ type CacheContainer struct {
 	chanInserts     chan interface{}
 	mu              sync.RWMutex
 	muIndex         sync.RWMutex
-	muQ             sync.RWMutex
 }
 
 func newContainer(tbl string, cfg Config, containerType interface{}) *CacheContainer {
@@ -38,7 +37,7 @@ func newContainer(tbl string, cfg Config, containerType interface{}) *CacheConta
 		m.config.AsyncInsertLatency = AsyncInsertLatency
 	}
 	m.name = tbl
-	m.storage = newStorage(tbl, cfg, containerType)
+	m.storage = newStorage(tbl, "", cfg, containerType)
 	m.items = make(map[interface{}]interface{})
 	m.itemsGroupIndex = make(map[interface{}][]string)
 	m.chanUpdates = make(chan interface{}, 1000)

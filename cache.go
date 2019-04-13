@@ -4,6 +4,7 @@ import "fmt"
 
 type CacheWB struct {
 	containers map[string]*CacheContainer
+	viewContainers map[string]*CacheViewContainer
 	config     Config
 }
 
@@ -16,6 +17,16 @@ func (c *CacheWB) GetContainer(tableName string, objType interface{}) *CacheCont
 	} else {
 		m := newContainer(tableName, c.config, objType)
 		c.containers[tableName] = m
+		return m
+	}
+}
+
+func (c *CacheWB) GetViewContainer(viewName string, viewQuery string, objType interface{}) *CacheViewContainer{
+	if item, ok := c.viewContainers[viewName]; ok {
+		return item
+	} else {
+		m := newViewContainer(viewName, viewQuery, c.config, objType)
+		c.viewContainers[viewName] = m
 		return m
 	}
 }
@@ -62,5 +73,6 @@ func NewCacheWB(cfg Config) *CacheWB {
 	s := &CacheWB{}
 	s.config = cfg
 	s.containers = make(map[string]*CacheContainer)
+	s.viewContainers = make(map[string]*CacheViewContainer)
 	return s
 }

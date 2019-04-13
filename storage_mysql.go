@@ -24,6 +24,8 @@ type mySQL struct {
 	itemTemplate         interface{}
 	fieldsMap            map[string]string
 	tableName            string
+	isView               bool
+	viewQuery            string
 	selectQuery          string
 	updateQuery          string
 	updateQueryFields    []string
@@ -36,13 +38,18 @@ type mySQL struct {
 	insertManyLimit      int
 }
 
-func newMySQL(tableName string, cfg ConfigMysql, itemTemplate interface{}) *mySQL {
+func newMySQL(tableName string, viewQuery string, cfg ConfigMysql, itemTemplate interface{}) *mySQL {
 	m := &mySQL{cfg: cfg, tableName: tableName}
+	if viewQuery != ""{
+		m.isView = true
+		m.viewQuery = viewQuery
+	}
 	m.itemTemplate = itemTemplate
 	m.parseTemplate()
 	m.insertManyLimit = 1000
 	return m
 }
+
 func (c *mySQL) getInsertLimit() int {
 	return c.insertManyLimit
 }
@@ -132,7 +139,9 @@ func (c *mySQL) get(args ...interface{}) (interface{}, error) {
 	if len(c.whereFieldName) != len(args) {
 		return nil, errors.New(fmt.Sprintf("expected %d arguments, got %d", len(c.whereFieldName), len(args)))
 	}
-
+	if c.isView{
+		c.selectQuery = c.viewQuery
+	}
 	val := reflect.New(reflect.TypeOf(c.itemTemplate))
 	elem := val.Elem()
 	c.checkConnection()
@@ -202,7 +211,9 @@ func (c *mySQL) getList(args ...interface{}) ([]interface{}, error) {
 	if len(c.whereFieldName) != len(args) {
 		return nil, errors.New(fmt.Sprintf("expected %d arguments, got %d", len(c.whereFieldName), len(args)))
 	}
-
+	if c.isView{
+		c.selectQuery = c.viewQuery
+	}
 	var resArr []interface{}
 	c.checkConnection()
 
@@ -266,7 +277,11 @@ func (c *mySQL) getList(args ...interface{}) ([]interface{}, error) {
 	return resArr, nil
 }
 
-func (c *mySQL) update(in interface{}) {
+func (c *mySQL) update(in interface{}) (interface{}, error) {
+	if c.isView{
+		return nil, errors.New("view does not support update")
+	}
+
 	elem := reflect.ValueOf(in).Elem()
 
 	valuePtrs := make([]interface{}, 0)
@@ -283,13 +298,20 @@ func (c *mySQL) update(in interface{}) {
 		panic(err)
 	}
 	defer stmt.Close()
-	_, err = stmt.Exec(valuePtrs...)
+	res, err := stmt.Exec(valuePtrs...)
 	if err != nil {
 		panic(err)
 	}
+	m := make(map[string]interface{})
+	m["LastInsertId"], _ = res.LastInsertId()
+	m["RowsAffected"], _ = res.RowsAffected()
+	return m, nil
 }
 
 func (c *mySQL) insert(args ...interface{}) (interface{}, error) {
+	if c.isView{
+		return nil, errors.New("view does not support insert")
+	}
 	if len(args) > c.insertManyLimit {
 		return nil, errors.New(fmt.Sprintf("unable to insert more than limit %d, got %d", c.insertManyLimit, len(args)))
 	}
@@ -325,6 +347,10 @@ func (c *mySQL) insert(args ...interface{}) (interface{}, error) {
 }
 
 func (c *mySQL) remove(args ...interface{}) (interface{}, error) {
+	if c.isView{
+		return nil, errors.New("view does not support remove")
+	}
+
 	if len(c.whereFieldName) != len(args) {
 		return nil, errors.New(fmt.Sprintf("expected %d arguments, got %d", len(c.whereFieldName), len(args)))
 	}
