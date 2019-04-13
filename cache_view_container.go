@@ -46,11 +46,11 @@ func (c *CacheViewContainer) workerMaintainer() {
 		select {
 		case <-t:
 			func() {
-				//defer func() {
-				//	if err := recover(); err != nil {
-				//		fmt.Println("Error in worker") // TODO remind for more developing
-				//	}
-				//}()
+				defer func() {
+					if err := recover(); err != nil {
+						fmt.Println("Error in worker") // TODO remind for more developing
+					}
+				}()
 				c.mu.Lock()
 				defer c.mu.Unlock()
 				for n, item := range c.items {
@@ -58,13 +58,11 @@ func (c *CacheViewContainer) workerMaintainer() {
 					elem := val.Elem()
 
 					eme := elem.FieldByName("EmbedMEOnView")
-					fmt.Println(n)
 					if eme.IsValid() {
 						embedMe := eme.Interface().(EmbedMEOnView)
-						fmt.Println(embedMe)
 						if embedMe.ttlReached() {
-					//		fmt.Println("TTL Reached")
-					//		c.RemoveFromCache(n)
+							fmt.Println("TTL Reached")
+							c.RemoveFromCache(n)
 						}
 					}
 				}
