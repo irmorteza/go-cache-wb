@@ -34,13 +34,14 @@ type mySQL struct {
 	insertQueryFields    []string
 	deleteQuery          string
 	whereFieldName       []string
+	whereUpdateFieldName []string
 	cfg                  ConfigMysql
 	insertManyLimit      int
 }
 
 func newMySQL(tableName string, viewQuery string, cfg ConfigMysql, itemTemplate interface{}) *mySQL {
 	m := &mySQL{cfg: cfg, tableName: tableName}
-	if viewQuery != ""{
+	if viewQuery != "" {
 		m.isView = true
 		m.viewQuery = viewQuery
 	}
@@ -58,6 +59,7 @@ func (c *mySQL) parseTemplate() {
 	setClause := ""
 	selectClause := ""
 	whereClause := ""
+	whereUpdateClause := ""
 	val1 := ""
 	val2 := ""
 	c.fieldsMap = make(map[string]string)
@@ -80,12 +82,21 @@ func (c *mySQL) parseTemplate() {
 				} else {
 					whereClause = fmt.Sprintf("%s = ?", tag)
 				}
-			} else if f.Tag.Get("update") != "0" && f.Tag.Get("autoInc") != "1" {
+			} else if f.Tag.Get("update") != "0" && f.Tag.Get("updateKey") != "1" && f.Tag.Get("autoInc") != "1" {
 				c.updateQueryFields = append(c.updateQueryFields, f.Name)
 				if len(setClause) > 0 {
 					setClause = fmt.Sprintf("%s, %s = ?", setClause, tag)
 				} else {
 					setClause = fmt.Sprintf("%s = ?", tag)
+				}
+			}
+			if f.Tag.Get("updateKey") == "1" {
+				//whereFieldName = f.Name
+				c.whereUpdateFieldName = append(c.whereUpdateFieldName, f.Name)
+				if len(whereUpdateClause) > 0 {
+					whereUpdateClause = fmt.Sprintf("%s and %s = ?", whereUpdateClause, tag)
+				} else {
+					whereUpdateClause = fmt.Sprintf("%s = ?", tag)
 				}
 			}
 			if f.Tag.Get("insert") != "0" {
@@ -106,12 +117,17 @@ func (c *mySQL) parseTemplate() {
 	if len(c.whereFieldName) == 0 {
 		panic("Can't find Key") // TODO fix message
 	}
+	// If nit exist tag "updateKey", then tag "key" used in update
+	if len(c.whereUpdateFieldName) == 0 {
+		c.whereUpdateFieldName = c.whereFieldName
+		whereUpdateClause = whereClause
+	}
 
-	c.updateQueryFields = append(c.updateQueryFields, c.whereFieldName...)
+	c.updateQueryFields = append(c.updateQueryFields, c.whereUpdateFieldName...)
 
 	c.selectQuery = fmt.Sprintf("SELECT %s FROM %s WHERE %s;", selectClause, c.tableName, whereClause)
 	c.deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s;", c.tableName, whereClause)
-	c.updateQuery = fmt.Sprintf("UPDATE %s SET %s WHERE %s;", c.tableName, setClause, whereClause)
+	c.updateQuery = fmt.Sprintf("UPDATE %s SET %s WHERE %s;", c.tableName, setClause, whereUpdateClause)
 	c.insertManyQueryPart1 = fmt.Sprintf("INSERT INTO %s (%s) values ", c.tableName, val1)
 	c.insertManyQueryPart2 = fmt.Sprintf("(%s)", val2)
 
@@ -139,7 +155,7 @@ func (c *mySQL) get(args ...interface{}) (interface{}, error) {
 	if len(c.whereFieldName) != len(args) {
 		return nil, errors.New(fmt.Sprintf("expected %d arguments, got %d", len(c.whereFieldName), len(args)))
 	}
-	if c.isView{
+	if c.isView {
 		c.selectQuery = c.viewQuery
 	}
 	val := reflect.New(reflect.TypeOf(c.itemTemplate))
@@ -211,7 +227,7 @@ func (c *mySQL) getList(args ...interface{}) ([]interface{}, error) {
 	if len(c.whereFieldName) != len(args) {
 		return nil, errors.New(fmt.Sprintf("expected %d arguments, got %d", len(c.whereFieldName), len(args)))
 	}
-	if c.isView{
+	if c.isView {
 		c.selectQuery = c.viewQuery
 	}
 	var resArr []interface{}
@@ -278,7 +294,7 @@ func (c *mySQL) getList(args ...interface{}) ([]interface{}, error) {
 }
 
 func (c *mySQL) update(in interface{}) (interface{}, error) {
-	if c.isView{
+	if c.isView {
 		return nil, errors.New("view does not support update")
 	}
 
@@ -309,7 +325,7 @@ func (c *mySQL) update(in interface{}) (interface{}, error) {
 }
 
 func (c *mySQL) insert(args ...interface{}) (interface{}, error) {
-	if c.isView{
+	if c.isView {
 		return nil, errors.New("view does not support insert")
 	}
 	if len(args) > c.insertManyLimit {
@@ -347,7 +363,7 @@ func (c *mySQL) insert(args ...interface{}) (interface{}, error) {
 }
 
 func (c *mySQL) remove(args ...interface{}) (interface{}, error) {
-	if c.isView{
+	if c.isView {
 		return nil, errors.New("view does not support remove")
 	}
 
