@@ -4,7 +4,6 @@ import "fmt"
 
 type CacheWB struct {
 	containers map[string]*CacheContainer
-	viewContainers map[string]*CacheViewContainer
 	config     Config
 }
 
@@ -21,12 +20,12 @@ func (c *CacheWB) GetContainer(tableName string, objType interface{}) *CacheCont
 	}
 }
 
-func (c *CacheWB) GetViewContainer(viewName string, viewQuery string, objType interface{}) *CacheViewContainer{
-	if item, ok := c.viewContainers[viewName]; ok {
+func (c *CacheWB) GetViewContainer(viewName string, viewQuery string, objType interface{}) *CacheContainer{
+	if item, ok := c.containers[viewName]; ok {
 		return item
 	} else {
 		m := newViewContainer(viewName, viewQuery, c.config, objType)
-		c.viewContainers[viewName] = m
+		c.containers[viewName] = m
 		return m
 	}
 }
@@ -35,7 +34,9 @@ func (c *CacheWB) GetViewContainer(viewName string, viewQuery string, objType in
 // withLock cause to avoid any updates on container (while the container is flushing)
 func (c *CacheWB) FlushAll(withLock bool) {
 	for _, item := range c.containers {
-		item.Flush(withLock)
+		if !item.isView {
+			item.Flush(withLock)
+		}
 	}
 }
 
@@ -44,9 +45,11 @@ func (c *CacheWB) FlushAll(withLock bool) {
 func (c *CacheWB) GracefulShutdown() bool {
 	fmt.Println("Start Graceful Shutdown")
 	for _, item := range c.containers {
-		fmt.Println("Graceful Shutdown, Flushing ", item.name)
-		item.lockUpdate = true
-		item.Flush(false)
+		if !item.isView {
+			fmt.Println("Graceful Shutdown, Flushing ", item.name)
+			item.lockUpdate = true
+			item.Flush(false)
+		}
 	}
 	fmt.Println("Graceful Shutdown Completed")
 	return true
@@ -73,6 +76,5 @@ func NewCacheWB(cfg Config) *CacheWB {
 	s := &CacheWB{}
 	s.config = cfg
 	s.containers = make(map[string]*CacheContainer)
-	s.viewContainers = make(map[string]*CacheViewContainer)
 	return s
 }

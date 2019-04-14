@@ -15,6 +15,7 @@ type CacheContainer struct {
 	config          Config
 	name            string // table name
 	lockUpdate      bool
+	isView          bool
 	itemType        interface{}
 	items           map[interface{}]interface{}
 	itemsGroupIndex map[interface{}][]string
@@ -24,7 +25,7 @@ type CacheContainer struct {
 	muIndex         sync.RWMutex
 }
 
-func newContainer(tbl string, cfg Config, containerType interface{}) *CacheContainer {
+func newContainer(containerName string, cfg Config, containerType interface{}) *CacheContainer {
 	var m CacheContainer
 	t := reflect.TypeOf(containerType)
 	if t.NumField() == 0 || t.Field(0).Name != "EmbedME" {
@@ -36,8 +37,31 @@ func newContainer(tbl string, cfg Config, containerType interface{}) *CacheConta
 	if m.config.AsyncInsertLatency == 0{
 		m.config.AsyncInsertLatency = AsyncInsertLatency
 	}
-	m.name = tbl
-	m.storage = newStorage(tbl, "", cfg, containerType)
+	m.name = containerName
+	m.storage = newStorage(containerName, "", cfg, containerType)
+	m.items = make(map[interface{}]interface{})
+	m.itemsGroupIndex = make(map[interface{}][]string)
+	m.chanUpdates = make(chan interface{}, 1000)
+	m.chanInserts = make(chan interface{}, 10000)
+	m.setManager()
+	return &m
+}
+
+func newViewContainer(containerName string, viewQuery string , cfg Config, containerType interface{}) *CacheContainer {
+	var m CacheContainer
+	t := reflect.TypeOf(containerType)
+	if t.NumField() == 0 || t.Field(0).Name != "EmbedME" {
+		panic(fmt.Sprintf("Coundn't find 'EmbedME' in %s. Please Add 'cachewb.EmbedME' at top of %s", t.Name(), t.Name()))
+	}
+	m.itemType = containerType
+	m.config = cfg
+	// set default values of config
+	if m.config.AsyncInsertLatency == 0{
+		m.config.AsyncInsertLatency = AsyncInsertLatency
+	}
+	m.name = containerName
+	m.isView = true
+	m.storage = newStorage("", viewQuery, cfg, containerType)
 	m.items = make(map[interface{}]interface{})
 	m.itemsGroupIndex = make(map[interface{}][]string)
 	m.chanUpdates = make(chan interface{}, 1000)
@@ -47,9 +71,11 @@ func newContainer(tbl string, cfg Config, containerType interface{}) *CacheConta
 }
 
 func (c *CacheContainer) setManager() {
-	go c.workerConsumerUpdater()
+	if !c.isView{
+		go c.workerConsumerUpdater()
+		go c.workerInserts()
+	}
 	go c.workerMaintainer()
-	go c.workerInserts()
 }
 
 func (c *CacheContainer) addToChanUpdates(a interface{}) error {
@@ -100,20 +126,21 @@ func (c *CacheContainer) workerMaintainer() {
 					eme := elem.FieldByName("EmbedME")
 					if eme.IsValid() {
 						embedMe := eme.Interface().(EmbedME)
-						//fmt.Println("Hello morteza Lass Access", embedMe.lastAccess)
-						if embedMe.updates > c.config.CacheWriteLatencyCount {
-							e := c.addToChanUpdates(item)
-							if e != nil {
-								// TODO  handle error
-							}
+						if ! c.isView {
+							if embedMe.updates > c.config.CacheWriteLatencyCount {
+								e := c.addToChanUpdates(item)
+								if e != nil {
+									// TODO  handle error
+								}
 
-						} else if embedMe.updates > 0 &&
-							time.Since(embedMe.lastUpdate).Seconds() > float64(c.config.CacheWriteLatencyTime) {
-							e := c.addToChanUpdates(item)
-							if e != nil {
-								// TODO  handle error
-							}
+							} else if embedMe.updates > 0 &&
+								time.Since(embedMe.lastUpdate).Seconds() > float64(c.config.CacheWriteLatencyTime) {
+								e := c.addToChanUpdates(item)
+								if e != nil {
+									// TODO  handle error
+								}
 
+							}
 						}
 						if embedMe.ttlReached() {
 							fmt.Println("TTL Reached")
@@ -162,7 +189,10 @@ func (c *CacheContainer) workerInserts() {
 }
 
 
-func (c *CacheContainer) Flush(withLock bool) {
+func (c *CacheContainer) Flush(withLock bool) error{
+	if c.isView{
+		return errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.name))
+	}
 	c.mu.Lock()
 	defer func() {
 		if withLock {
@@ -182,6 +212,7 @@ func (c *CacheContainer) Flush(withLock bool) {
 			val.MethodByName("UpdateStorage").Call([]reflect.Value{}) // TODO may this line need go
 		}
 	}
+	return nil
 }
 
 func (c *CacheContainer) getByLock(value interface{}) (interface{}, bool) {
@@ -288,6 +319,9 @@ func (c *CacheContainer) GetList(values ...interface{}) ([]interface{}, error) {
 
 // Insert object(s) to container. the object will add to database synchronously,
 func (c *CacheContainer) Insert(in ...interface{}) (interface{}, error) {
+	if c.isView{
+		return nil, errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.name))
+	}
 	if c.lockUpdate {
 		return nil, errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
 	}
@@ -295,12 +329,18 @@ func (c *CacheContainer) Insert(in ...interface{}) (interface{}, error) {
 }
 
 // Asynchronously insert object(s) to container. the object will bulk insert to database.
-func (c *CacheContainer) InsertAsync(in ...interface{}) {
+func (c *CacheContainer) InsertAsync(in ...interface{}) error {
+	if c.isView{
+		return errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.name))
+	}
 	go c.addToChanInserts(in)
+	return nil
 }
 
 func (c *CacheContainer) Remove(values ...interface{}) (interface{}, error) {
-	//valStr := c.getValueStr(values...)
+	if c.isView{
+		return nil, errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.name))
+	}
 	if c.lockUpdate {
 		return nil, errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
 	}
@@ -334,6 +374,9 @@ type EmbedME struct {
 }
 
 func (c *EmbedME) IncUpdate() error {
+	if c.container.isView{
+		return errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.container.name))
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.container.lockUpdate {
@@ -350,7 +393,11 @@ func (c *EmbedME) IncUpdate() error {
 	return nil
 }
 
-func (c *EmbedME) UpdateStorage() {
+func (c *EmbedME) UpdateStorage() error{
+	if c.container.isView{
+		return errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.container.name))
+	}
+
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.updates > 0 {
@@ -358,6 +405,7 @@ func (c *EmbedME) UpdateStorage() {
 		c.container.storage.update(c.parent)
 		c.updates = 0
 	}
+	return nil
 }
 
 func (c *EmbedME) ttlReached() bool {
