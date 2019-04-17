@@ -1,5 +1,6 @@
 package cachewb
 
+
 import (
 	"errors"
 	"fmt"
@@ -10,26 +11,40 @@ import (
 )
 
 const AsyncInsertLatency  = 5
+
 type CacheContainer struct {
-	storage         storage
-	config          Config
-	name            string // table name
-	lockUpdate      bool
-	isView          bool
-	itemType        interface{}
-	items           map[interface{}]interface{}
-	itemsGroupIndex map[interface{}][]string
-	chanUpdates     chan interface{}
-	chanInserts     chan interface{}
-	mu              sync.RWMutex
-	muIndex         sync.RWMutex
+	storage        storage
+	config         Config
+	name           string
+	uniqueIdentity string
+	lockUpdate     bool
+	isView         bool
+	itemType       interface{}
+	items          map[interface{}]interface{}
+	queryIndex     map[string]map[string]*cacheIndexEntry
+	chanUpdates    chan interface{}
+	chanInserts    chan interface{}
+	mu             sync.RWMutex
+	muIndex        sync.RWMutex
 }
 
 func newContainer(containerName string, cfg Config, containerType interface{}) *CacheContainer {
 	var m CacheContainer
 	t := reflect.TypeOf(containerType)
 	if t.NumField() == 0 || t.Field(0).Name != "EmbedME" {
-		panic(fmt.Sprintf("Coundn't find 'EmbedME' in %s. Please Add 'cachewb.EmbedME' at top of %s", t.Name(), t.Name()))
+		panic(fmt.Sprintf("Couldn't find 'EmbedME' in %s. Please Add 'cachewb.EmbedME' at top of %s", t.Name(), t.Name()))
+	}
+
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if tag := f.Tag.Get("uniqueIdentity"); tag != "" {
+			m.uniqueIdentity = f.Name
+		}
+	}
+	if m.uniqueIdentity == ""{
+		panic("Couldn't find 'uniqueIdentity' field. Please tagged a unique field as 'uniqueIdentity'. " +
+			"\nFor example: " +
+			"\n   Id       int64     `storage:\"id\" uniqueIdentity:\"1\"`")
 	}
 	m.itemType = containerType
 	m.config = cfg
@@ -40,7 +55,7 @@ func newContainer(containerName string, cfg Config, containerType interface{}) *
 	m.name = containerName
 	m.storage = newStorage(containerName, "", cfg, containerType)
 	m.items = make(map[interface{}]interface{})
-	m.itemsGroupIndex = make(map[interface{}][]string)
+	m.queryIndex = make(map[string]map[string]*cacheIndexEntry)
 	m.chanUpdates = make(chan interface{}, 1000)
 	m.chanInserts = make(chan interface{}, 10000)
 	m.setManager()
@@ -53,6 +68,17 @@ func newViewContainer(containerName string, viewQuery string , cfg Config, conta
 	if t.NumField() == 0 || t.Field(0).Name != "EmbedME" {
 		panic(fmt.Sprintf("Coundn't find 'EmbedME' in %s. Please Add 'cachewb.EmbedME' at top of %s", t.Name(), t.Name()))
 	}
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if tag := f.Tag.Get("uniqueIdentity"); tag != "" {
+			m.uniqueIdentity = f.Name
+		}
+	}
+	if m.uniqueIdentity == ""{
+		panic("Couldn't find 'uniqueIdentity' field. Please tagged a unique field as 'uniqueIdentity'. " +
+			"\nFor example: " +
+			"\n   Id       int64     `storage:\"id\" uniqueIdentity:\"1\"`")
+	}
 	m.itemType = containerType
 	m.config = cfg
 	// set default values of config
@@ -63,7 +89,7 @@ func newViewContainer(containerName string, viewQuery string , cfg Config, conta
 	m.isView = true
 	m.storage = newStorage("", viewQuery, cfg, containerType)
 	m.items = make(map[interface{}]interface{})
-	m.itemsGroupIndex = make(map[interface{}][]string)
+	m.queryIndex = make(map[string]map[string]*cacheIndexEntry)
 	m.chanUpdates = make(chan interface{}, 1000)
 	m.chanInserts = make(chan interface{}, 10000)
 	m.setManager()
@@ -76,6 +102,7 @@ func (c *CacheContainer) setManager() {
 		go c.workerInserts()
 	}
 	go c.workerMaintainer()
+	go c.workerQueryIndexMaintainer()
 }
 
 func (c *CacheContainer) addToChanUpdates(a interface{}) error {
@@ -139,12 +166,39 @@ func (c *CacheContainer) workerMaintainer() {
 								if e != nil {
 									// TODO  handle error
 								}
-
 							}
 						}
 						if embedMe.ttlReached() {
 							fmt.Println("TTL Reached")
 							c.RemoveFromCache(n)
+						}
+					}
+				}
+			}()
+		}
+	}
+}
+
+func (c *CacheContainer) workerQueryIndexMaintainer() {
+	for {
+		t := time.After(time.Second * time.Duration(c.config.Interval)) // TODO change time
+		select {
+		case <-t:
+			func() {
+				defer func() {
+					if err := recover(); err != nil {
+						fmt.Println("Error in worker") // TODO remind for more developing
+					}
+				}()
+				c.mu.Lock()
+				defer c.mu.Unlock()
+				for _, item := range c.queryIndex { ////////////////////////////////
+					//fmt.Println("----", idxQueryName, item)
+					for idxQueryValue, idxQueryResultIds := range item{
+						//fmt.Println("-------", idxQueryValue, idxQueryResultIds.values)
+						if time.Since(idxQueryResultIds.lastAccess).Seconds() > float64(10) {		// TODO
+							fmt.Println("****** Deleting", idxQueryValue)
+							delete(item, idxQueryValue)					// todo use lock
 						}
 					}
 				}
@@ -215,17 +269,25 @@ func (c *CacheContainer) Flush(withLock bool) error{
 	return nil
 }
 
+func (c *CacheContainer) getFromIndex(idxQueryName string, idxQueryValue string) (*cacheIndexEntry, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if a, ok := c.queryIndex[idxQueryName]; ok {
+		if b, okok := a[idxQueryValue]; okok {
+			return b, true
+		} else {
+			return nil, false
+		}
+	} else {
+		c.queryIndex[idxQueryName] = make(map[string]*cacheIndexEntry)
+		return nil, false
+	}
+}
+
 func (c *CacheContainer) getByLock(value interface{}) (interface{}, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	r, ok := c.items[value]
-	return r, ok
-}
-
-func (c *CacheContainer) getByLockFromGroupIndex(value interface{}) ([]string, bool) {
-	c.muIndex.Lock()
-	defer c.muIndex.Unlock()
-	r, ok := c.itemsGroupIndex[value]
 	return r, ok
 }
 
@@ -238,11 +300,11 @@ func (c *CacheContainer) getValueStr(a ...interface{}) string {
 }
 
 // Return an object from cache. This method check cache first,
-// and then look in the database if not found
-// It return result for values, if it was one, if there were
-// more than one result, you should use GetList()
-func (c *CacheContainer) Get(values ...interface{}) (interface{}, error) {
-	valStr := c.getValueStr(values...)
+// and then look in the storage, if not found.
+// It return result for uniqueIdentityValue, if it was one, if there were
+// more than one result, you should use Get()
+func (c *CacheContainer) GetOne(uniqueIdentityValue interface{}) (interface{}, error) {
+	valStr := c.getValueStr(uniqueIdentityValue)
 	if item, ok := c.getByLock(valStr); ok {
 		elem := reflect.ValueOf(item).Elem()
 		if elem.Kind() == reflect.Struct {
@@ -255,48 +317,81 @@ func (c *CacheContainer) Get(values ...interface{}) (interface{}, error) {
 		}
 		return item, nil
 	} else {
-		res, e := c.storage.get(values...)
+		res, e := c.storage.get([]string{c.uniqueIdentity}, []interface{}{uniqueIdentityValue})
 		if e == nil {
-			elem := reflect.ValueOf(res).Elem()
-			if elem.Kind() == reflect.Struct {
-				eme := elem.FieldByName("EmbedME")
-				if eme.IsValid() {
-					embedMe := eme.Interface().(EmbedME)
-					embedMe.lastAccess = time.Now()
-					embedMe.container = c
-					embedMe.parent = res
-					eme.Set(reflect.ValueOf(embedMe))
+			switch len(res) {
+			case 1:
+				elem := reflect.ValueOf(res[0]).Elem()
+				if elem.Kind() == reflect.Struct {
+					eme := elem.FieldByName("EmbedME")
+					if eme.IsValid() {
+						embedMe := eme.Interface().(EmbedME)
+						embedMe.lastAccess = time.Now()
+						embedMe.container = c
+						embedMe.parent = res[0]
+						eme.Set(reflect.ValueOf(embedMe))
+					}
 				}
+				c.mu.Lock()
+				defer c.mu.Unlock()
+				c.items[valStr] = res[0]
+				return res[0], e
+
+			case 0:
+				return nil, nil
+			default:
+				return nil, errors.New(fmt.Sprintf("there is more result for %s=%s. expected 1 result, found %d." +
+					" make sure uniqueIdentity of %s is unique" ,
+					c.uniqueIdentity, uniqueIdentityValue, len(res), c.uniqueIdentity))
 			}
-			c.mu.Lock()
-			defer c.mu.Unlock()
-			c.items[valStr] = res
+		}else {
+			return nil, e
 		}
-		return res, e
 	}
 }
 
-// like Get, but it return array of object
-func (c *CacheContainer) GetList(values ...interface{}) ([]interface{}, error) {
-	valStr := c.getValueStr(values...)
-	if item, ok := c.getByLockFromGroupIndex(valStr); ok {
+func (c *CacheContainer) Get(keys []string, values[]interface{}) ([]interface{}, error) {
+	idxQueryName := strings.Join(keys, "-")
+	idxQueryValue := c.getValueStr(values...)
+
+	if item, ok := c.getFromIndex(idxQueryName, idxQueryValue); ok {
+		//fmt.Println("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "got from cache", idxQueryName, idxQueryValue)
 		var a []interface{}
-		for _, jj := range item {
+		gg := true
+		// extend live time
+		item.lastAccess = time.Now()
+		for _, jj := range item.values {
 			if v, ok := c.getByLock(jj); ok {
 				a = append(a, v)
+			} else {
+				gg = false
+				//fmt.Println("EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE", "inconsistency in cache", idxQueryName, idxQueryValue)
+				break
 			}
 		}
-		return a, nil
-	} else {
-		var a []interface{}
-		var b []string
-		res, e := c.storage.getList(values...)
+		if gg {
+			return a, nil
+		}
+	}
+	//fmt.Println("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", "got from storage", idxQueryName, idxQueryValue)
+	var a []interface{}
+	res, e := c.storage.get(keys, values)
+	if len(res) > 0 {
 		if e == nil {
 			c.mu.Lock()
 			defer c.mu.Unlock()
-			for i, item := range res {
+			var idxQueryResultIds []string
+			for _, item := range res {
+				idString := ""
+
 				elem := reflect.ValueOf(item).Elem()
 				if elem.Kind() == reflect.Struct {
+					usedId := elem.FieldByName(c.uniqueIdentity)
+					if usedId.IsValid() {
+						idString = fmt.Sprintf("%v", usedId.Interface())
+						idxQueryResultIds = append(idxQueryResultIds, idString)
+
+					}
 					eme := elem.FieldByName("EmbedME")
 					if eme.IsValid() {
 						embedMe := eme.Interface().(EmbedME)
@@ -306,15 +401,21 @@ func (c *CacheContainer) GetList(values ...interface{}) ([]interface{}, error) {
 						eme.Set(reflect.ValueOf(embedMe))
 					}
 				}
-				a = append(a, item)
-				k := fmt.Sprintf("%s-multiRec-%d", valStr, i)
-				c.items[k] = item
-				b = append(b, k)
+				if idString != "" {
+					if existedItem, ok := c.items[idString]; ok {
+						a = append(a, existedItem)
+					} else {
+						a = append(a, item)
+						c.items[idString] = item
+					}
+				}
 			}
-			c.itemsGroupIndex[valStr] = b
+			c.queryIndex[idxQueryName][idxQueryValue] = &cacheIndexEntry{values: idxQueryResultIds, lastAccess: time.Now()}
 		}
-		return a, e
+	} else {
+		// TODO      handle empty query
 	}
+	return a, e
 }
 
 // Insert object(s) to container. the object will add to database synchronously,
@@ -337,31 +438,58 @@ func (c *CacheContainer) InsertAsync(in ...interface{}) error {
 	return nil
 }
 
-func (c *CacheContainer) Remove(values ...interface{}) (interface{}, error) {
+// Remove from cache and storage by any keys (caution: This method may have some overload on storage)
+// Unlike method `Remove`, You can use `RemoveIndirect` to remove from cache and storage by any keys.
+// First, RemoveIndirect call storage.Get() by keys and values arguments, internally, to find uniqueIdentities.
+// And then remove then by uniqueIdentities through the `Remove` method
+func (c *CacheContainer) RemoveIndirect(keys []string, values[]interface{}) (interface{}, error) {
 	if c.isView{
 		return nil, errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.name))
 	}
 	if c.lockUpdate {
 		return nil, errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
 	}
-	c.RemoveFromCache(values...)
-	return c.storage.remove(values...)
+	res, e := c.storage.get(keys, values)
+	var uniqueIdentities [] interface{}
+	if len(res) > 0 {
+		if e == nil {
+			for _, item := range res {
+				elem := reflect.ValueOf(item).Elem()
+				if elem.Kind() == reflect.Struct {
+					usedId := elem.FieldByName(c.uniqueIdentity)
+					if usedId.IsValid() {
+						uniqueIdentities = append(uniqueIdentities,  usedId.Interface())
+					}
+				}
+			}
+		}
+	}
+	if len(uniqueIdentities) > 0 {
+		c.RemoveFromCache(uniqueIdentities...)
+		return c.storage.remove(uniqueIdentities...)
+	}else {
+		return map[string]interface{}{"LastInsertId": 0, "RowsAffected": 0}, nil
+	}
 }
 
-func (c *CacheContainer) RemoveFromCache(values ...interface{}) {
-	valStr := c.getValueStr(values...)
+// Remove from cache and storage just by uniqueIdentities
+func (c *CacheContainer) Remove(uniqueIdentities ...interface{}) (interface{}, error) {
+	if c.isView{
+		return nil, errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.name))
+	}
+	if c.lockUpdate {
+		return nil, errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
+	}
+	c.RemoveFromCache(uniqueIdentities...)
+	return c.storage.remove(uniqueIdentities...)
+}
+
+func (c *CacheContainer) RemoveFromCache(uniqueIdentities ...interface{}) {
+	valStr := c.getValueStr(uniqueIdentities...)
 	if c.lockUpdate {
 		fmt.Println(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
 	}
-	if g, ok := c.getByLockFromGroupIndex(valStr); ok {
-		for _, m := range g {
-			delete(c.items, m)
-		}
-		delete(c.itemsGroupIndex, valStr)
-
-	} else {
-		delete(c.items, valStr)
-	}
+	delete(c.items, valStr)
 }
 
 type EmbedME struct {
@@ -416,4 +544,9 @@ func (c *EmbedME) ttlReached() bool {
 	} else {
 		return false
 	}
+}
+
+type cacheIndexEntry struct {
+	values []string
+	lastAccess time.Time
 }

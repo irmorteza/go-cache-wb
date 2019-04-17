@@ -26,13 +26,13 @@ type mySQL struct {
 	tableName            string
 	isView               bool
 	viewQuery            string
-	selectQuery          string
+	uniqueIdentity       string
+	selectQueryPre       string
 	updateQuery          string
 	updateQueryFields    []string
 	insertManyQueryPart1 string
 	insertManyQueryPart2 string
 	insertQueryFields    []string
-	deleteQuery          string
 	whereFieldName       []string
 	whereUpdateFieldName []string
 	cfg                  ConfigMysql
@@ -68,14 +68,13 @@ func (c *mySQL) parseTemplate() {
 		f := t.Field(i)
 		if tag := f.Tag.Get("storage"); tag != "" {
 			c.fieldsMap[tag] = f.Name
-			//fmt.Println("%%%%%%%%%%%%%%%%%%%", f.Type)
 			if len(selectClause) > 0 {
 				selectClause = fmt.Sprintf("%s, %s", selectClause, tag)
 			} else {
 				selectClause = fmt.Sprintf("%s", tag)
 			}
-			if f.Tag.Get("key") == "1" {
-				//whereFieldName = f.Name
+			if f.Tag.Get("uniqueIdentity") == "1" {
+				c.uniqueIdentity = f.Name
 				c.whereFieldName = append(c.whereFieldName, f.Name)
 				if len(whereClause) > 0 {
 					whereClause = fmt.Sprintf("%s and %s = ?", whereClause, tag)
@@ -117,25 +116,23 @@ func (c *mySQL) parseTemplate() {
 	if len(c.whereFieldName) == 0 {
 		panic("Can't find Key") // TODO fix message
 	}
-	// If nit exist tag "updateKey", then tag "key" used in update
+	// If not exist tag "updateKey", then tag "uniqueIdentity" used in update
 	if len(c.whereUpdateFieldName) == 0 {
 		c.whereUpdateFieldName = c.whereFieldName
 		whereUpdateClause = whereClause
 	}
-
+	c.viewQuery = strings.TrimRight(strings.TrimRight(c.viewQuery, " "), ";")
+	
 	c.updateQueryFields = append(c.updateQueryFields, c.whereUpdateFieldName...)
 
-	c.selectQuery = fmt.Sprintf("SELECT %s FROM %s WHERE %s;", selectClause, c.tableName, whereClause)
-	c.deleteQuery = fmt.Sprintf("DELETE FROM %s WHERE %s;", c.tableName, whereClause)
+	c.selectQueryPre = fmt.Sprintf("SELECT %s FROM %s", selectClause, c.tableName)
 	c.updateQuery = fmt.Sprintf("UPDATE %s SET %s WHERE %s;", c.tableName, setClause, whereUpdateClause)
 	c.insertManyQueryPart1 = fmt.Sprintf("INSERT INTO %s (%s) values ", c.tableName, val1)
 	c.insertManyQueryPart2 = fmt.Sprintf("(%s)", val2)
 
-	//fmt.Println(c.selectQuery)
-	//fmt.Println(c.deleteQuery)
+	//fmt.Println(c.selectQueryPre)
 	//fmt.Println(c.updateQuery)
 	//fmt.Println(c.updateQueryFields)
-	//fmt.Println(c.insertQuery)
 	//fmt.Println(c.insertQueryFields)
 }
 
@@ -151,113 +148,55 @@ func (c *mySQL) checkConnection() {
 	}
 }
 
-func (c *mySQL) get(args ...interface{}) (interface{}, error) {
-	if len(c.whereFieldName) != len(args) {
-		return nil, errors.New(fmt.Sprintf("expected %d arguments, got %d", len(c.whereFieldName), len(args)))
-	}
-	if c.isView {
-		c.selectQuery = c.viewQuery
-	}
-	val := reflect.New(reflect.TypeOf(c.itemTemplate))
-	elem := val.Elem()
-	c.checkConnection()
-
-	stmt, err := c.mysqlDB.Prepare(c.selectQuery)
-	if err != nil {
-		panic(err)
-	}
-	defer stmt.Close()
-	rows, err := stmt.Query(args...)
-	if err != nil {
-		panic(err)
-	}
-	columns, _ := rows.Columns()
-	count := len(columns)
-	values := make([]interface{}, count)
-	valuePtrs := make([]interface{}, count)
-
-	cnt := 1
-	for rows.Next() {
-		if cnt > 1 {
-			return nil, errors.New("there are more than one row. please use GetList")
-		}
-		cnt ++
-		for i := range columns {
-			valuePtrs[i] = &values[i]
-		}
-		rows.Scan(valuePtrs...)
-		//fmt.Println(values)
-		for i, col := range columns {
-			val := values[i]
-			resByte, okByte := val.([]byte)
-			if elem.Kind() == reflect.Struct {
-				if c2, ok := c.fieldsMap[col]; ok {
-					f := elem.FieldByName(c2)
-					if f.IsValid() && f.CanSet() {
-						//fmt.Println("##### Consider me ", c2, f.Kind(), reflect.TypeOf(val), val)
-						if f.Kind() == reflect.Float64 {
-							if okByte {
-								//(float64) supported mysql data types : decimal
-								r, _ := strconv.ParseFloat(string(resByte), 64)
-								f.SetFloat(r)
-							} else {
-								//(float64) supported mysql data types : double, real
-								f.Set(reflect.ValueOf(val))
-							}
-						} else if f.Kind() == reflect.Slice {
-							// ([]byte) supported mysql data types : binary, tinyblob
-							f.Set(reflect.ValueOf(val))
-						} else if f.Kind() == reflect.String {
-							// (string) supported mysql data types :varchar, varbinary, tinytext
-							if okByte {
-								f.Set(reflect.ValueOf(string(resByte)))
-							}
-						} else {
-							f.Set(reflect.ValueOf(val))
-						}
-					}
-				}
-			}
+func (c *mySQL) get(keys []string, values[]interface{}) ([]interface{}, error) {
+	whereClause := ""
+	for _, a := range keys {
+		if len(whereClause) > 0 {
+			whereClause = fmt.Sprintf("%s and %s = ?", whereClause, a)
+		} else {
+			whereClause = fmt.Sprintf("%s = ?", a)
 		}
 	}
-	return val.Interface(), nil
-}
+	q := ""
+	if c.isView{
 
-func (c *mySQL) getList(args ...interface{}) ([]interface{}, error) {
-	if len(c.whereFieldName) != len(args) {
-		return nil, errors.New(fmt.Sprintf("expected %d arguments, got %d", len(c.whereFieldName), len(args)))
+		if strings.Contains(strings.ToLower(c.viewQuery), "where"){
+			q = fmt.Sprintf("%s and %s;", c.viewQuery, whereClause)
+		}else {
+			q = fmt.Sprintf("%s where %s;", c.viewQuery, whereClause)
+		}
+	}else {
+		q = fmt.Sprintf("%s where %s;", c.selectQueryPre, whereClause)
 	}
-	if c.isView {
-		c.selectQuery = c.viewQuery
-	}
+	fmt.Println(q)
 	var resArr []interface{}
 	c.checkConnection()
 
-	stmt, err := c.mysqlDB.Prepare(c.selectQuery)
+	stmt, err := c.mysqlDB.Prepare(q)
 	if err != nil {
 		panic(err)
 	}
 	defer stmt.Close()
-	rows, err := stmt.Query(args...)
+	rows, err := stmt.Query(values...)
 	if err != nil {
 		panic(err)
 	}
 
 	columns, _ := rows.Columns()
 	count := len(columns)
-	values := make([]interface{}, count)
-	valuePtrs := make([]interface{}, count)
+	resValues := make([]interface{}, count)
+	resValuePtrs := make([]interface{}, count)
 
 	for rows.Next() {
 		val := reflect.New(reflect.TypeOf(c.itemTemplate))
 		elem := val.Elem()
 		for i := range columns {
-			valuePtrs[i] = &values[i]
+			resValuePtrs[i] = &resValues[i]
 		}
-		rows.Scan(valuePtrs...)
-		//fmt.Println(values)
+		rows.Scan(resValuePtrs...)
+		//fmt.Println(resValues)
 		for i, col := range columns {
-			val := values[i]
+			val := resValues[i]
 			resByte, okByte := val.([]byte)
 			if elem.Kind() == reflect.Struct {
 				if c2, ok := c.fieldsMap[col]; ok {
@@ -281,7 +220,8 @@ func (c *mySQL) getList(args ...interface{}) ([]interface{}, error) {
 							if okByte {
 								f.Set(reflect.ValueOf(string(resByte)))
 							}
-						} else {
+						} else if val != nil{
+							//fmt.Println(c2, val)
 							f.Set(reflect.ValueOf(val))
 						}
 					}
@@ -367,11 +307,22 @@ func (c *mySQL) remove(args ...interface{}) (interface{}, error) {
 		return nil, errors.New("view does not support remove")
 	}
 
-	if len(c.whereFieldName) != len(args) {
-		return nil, errors.New(fmt.Sprintf("expected %d arguments, got %d", len(c.whereFieldName), len(args)))
+	if len(args) == 0 {
+		return nil, errors.New(fmt.Sprintf("expected at least 1 argument, got %d", len(args)))
 	}
 	c.checkConnection()
-	q := fmt.Sprintf(c.deleteQuery)
+	q := ""
+	if len(args) == 1 {
+		q = fmt.Sprintf("DELETE FROM %s WHERE %s = ?;", c.tableName, c.uniqueIdentity)
+	}else{
+		var a []string
+		for range args{
+			a = append(a, "?")
+		}
+		q = fmt.Sprintf("DELETE FROM %s WHERE %s in (%s);", c.tableName, c.uniqueIdentity, strings.Join(a, ", "))
+	}
+	//fmt.Println(q)
+	//return nil, nil
 	stmt, err := c.mysqlDB.Prepare(q)
 	if err != nil {
 		panic(err)
@@ -386,3 +337,4 @@ func (c *mySQL) remove(args ...interface{}) (interface{}, error) {
 	m["RowsAffected"], _ = res.RowsAffected()
 	return m, nil
 }
+
