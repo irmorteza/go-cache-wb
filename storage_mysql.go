@@ -168,7 +168,7 @@ func (c *mySQL) get(keys []string, values[]interface{}) ([]interface{}, error) {
 	}else {
 		q = fmt.Sprintf("%s where %s;", c.selectQueryPre, whereClause)
 	}
-	fmt.Println(q)
+	//fmt.Println(q)
 	var resArr []interface{}
 	c.checkConnection()
 

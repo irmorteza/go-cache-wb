@@ -32,7 +32,7 @@ func newContainer(containerName string, cfg Config, containerType interface{}) *
 	var m CacheContainer
 	t := reflect.TypeOf(containerType)
 	if t.NumField() == 0 || t.Field(0).Name != "EmbedME" {
-		panic(fmt.Sprintf("Couldn't find 'EmbedME' in %s. Please Add 'cachewb.EmbedME' at top of %s", t.Name(), t.Name()))
+		panic(fmt.Sprintf("container:%s. couldn't find 'EmbedME' in %s. Please Add 'cachewb.EmbedME' at top of %s", containerName, t.Name(), t.Name()))
 	}
 
 	for i := 0; i < t.NumField(); i++ {
@@ -42,9 +42,9 @@ func newContainer(containerName string, cfg Config, containerType interface{}) *
 		}
 	}
 	if m.uniqueIdentity == ""{
-		panic("Couldn't find 'uniqueIdentity' field. Please tagged a unique field as 'uniqueIdentity'. " +
+		panic(fmt.Sprintf("container:%s. couldn't find 'uniqueIdentity' field. Please tagged a unique field as 'uniqueIdentity'. " +
 			"\nFor example: " +
-			"\n   Id       int64     `storage:\"id\" uniqueIdentity:\"1\"`")
+			"\n   Id       int64     `storage:\"id\" uniqueIdentity:\"1\"`", containerName))
 	}
 	m.itemType = containerType
 	m.config = cfg
@@ -66,7 +66,7 @@ func newViewContainer(containerName string, viewQuery string , cfg Config, conta
 	var m CacheContainer
 	t := reflect.TypeOf(containerType)
 	if t.NumField() == 0 || t.Field(0).Name != "EmbedME" {
-		panic(fmt.Sprintf("Coundn't find 'EmbedME' in %s. Please Add 'cachewb.EmbedME' at top of %s", t.Name(), t.Name()))
+		panic(fmt.Sprintf("viewContainer:%s. coundn't find 'EmbedME' in %s. Please Add 'cachewb.EmbedME' at top of %s", containerName, t.Name(), t.Name()))
 	}
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
@@ -75,9 +75,9 @@ func newViewContainer(containerName string, viewQuery string , cfg Config, conta
 		}
 	}
 	if m.uniqueIdentity == ""{
-		panic("Couldn't find 'uniqueIdentity' field. Please tagged a unique field as 'uniqueIdentity'. " +
+		panic(fmt.Sprintf("viewContainer:%s. couldn't find 'uniqueIdentity' field. Please tagged a unique field as 'uniqueIdentity'. " +
 			"\nFor example: " +
-			"\n   Id       int64     `storage:\"id\" uniqueIdentity:\"1\"`")
+			"\n   Id       int64     `storage:\"id\" uniqueIdentity:\"1\"`", containerName))
 	}
 	m.itemType = containerType
 	m.config = cfg
