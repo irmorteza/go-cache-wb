@@ -258,7 +258,7 @@ func (c *mySQL) update(in interface{}) (interface{}, error) {
 	if err != nil {
 		panic(err)
 	}
-	m := make(map[string]interface{})
+	m := make(map[string]int64)
 	m["LastInsertId"], _ = res.LastInsertId()
 	m["RowsAffected"], _ = res.RowsAffected()
 	return m, nil
@@ -296,7 +296,7 @@ func (c *mySQL) insert(args ...interface{}) (interface{}, error) {
 	if err != nil {
 		panic(err)
 	}
-	m := make(map[string]interface{})
+	m := make(map[string]int64)
 	m["LastInsertId"], _ = res.LastInsertId()
 	m["RowsAffected"], _ = res.RowsAffected()
 	return m, nil
@@ -332,7 +332,7 @@ func (c *mySQL) remove(args ...interface{}) (interface{}, error) {
 	if err != nil {
 		panic(err)
 	}
-	m := make(map[string]interface{})
+	m := make(map[string]int64)
 	m["LastInsertId"], _ = res.LastInsertId()
 	m["RowsAffected"], _ = res.RowsAffected()
 	return m, nil

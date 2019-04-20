@@ -57,18 +57,20 @@ func (c *CacheWB) GracefulShutdown() bool {
 
 type Config struct {
 	//
-	Interval               int
-	CacheWriteLatencyTime  int
+	Interval              int
+	CacheWriteLatencyTime int
 	// For a object in container, it represent maximum cache update
 	// in time of CacheWriteLatencyTime need to make flush object
 	CacheWriteLatencyCount int
 	// Type of database, that cache should support
-	StorageName            StorageKind
+	StorageName StorageKind
 	// Config of database is using
-	Database               interface{}
+	Database interface{}
 	// Maximum time, an object keep in cache after last access
-	AccessTTL              int
-	AsyncInsertLatency     int
+	AccessTTL int
+	// Maximum time, an query index keep in cache after last access
+	AccessQueryIndexTTL int
+	AsyncInsertLatency  int
 }
 
 // Get an CacheWB variable

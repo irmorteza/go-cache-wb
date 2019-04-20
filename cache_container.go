@@ -190,13 +190,13 @@ func (c *CacheContainer) workerQueryIndexMaintainer() {
 						fmt.Println("Error in worker") // TODO remind for more developing
 					}
 				}()
-				c.mu.Lock()
-				defer c.mu.Unlock()
-				for _, item := range c.queryIndex { ////////////////////////////////
+				c.muIndex.Lock()
+				defer c.muIndex.Unlock()
+				for _, item := range c.queryIndex {
 					//fmt.Println("----", idxQueryName, item)
 					for idxQueryValue, idxQueryResultIds := range item{
 						//fmt.Println("-------", idxQueryValue, idxQueryResultIds.values)
-						if time.Since(idxQueryResultIds.lastAccess).Seconds() > float64(10) {		// TODO
+						if time.Since(idxQueryResultIds.lastAccess).Seconds() > float64(c.config.AccessQueryIndexTTL) {		// TODO
 							fmt.Println("****** Deleting", idxQueryValue)
 							delete(item, idxQueryValue)					// todo use lock
 						}
@@ -270,8 +270,8 @@ func (c *CacheContainer) Flush(withLock bool) error{
 }
 
 func (c *CacheContainer) getFromIndex(idxQueryName string, idxQueryValue string) (*cacheIndexEntry, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.muIndex.Lock()
+	defer c.muIndex.Unlock()
 	if a, ok := c.queryIndex[idxQueryName]; ok {
 		if b, okok := a[idxQueryValue]; okok {
 			return b, true
@@ -380,6 +380,8 @@ func (c *CacheContainer) Get(keys []string, values[]interface{}) ([]interface{},
 		if e == nil {
 			c.mu.Lock()
 			defer c.mu.Unlock()
+			c.muIndex.Lock()
+			defer c.muIndex.Unlock()
 			var idxQueryResultIds []string
 			for _, item := range res {
 				idString := ""
