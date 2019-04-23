@@ -1,9 +1,11 @@
 package cachewb
 
 type storage interface {
-	//get(key ...interface{}) (interface{}, error)
+	//getOld(key ...interface{}) (interface{}, error)
 	//getList(key ...interface{}) ([]interface{}, error)
-	get(keys []string, values[]interface{}) ([]interface{}, error)
+	//get(args ...interface{}) ([]interface{}, error)
+	getOld(keys []string, values[]interface{}) ([]interface{}, error)
+	getBySquirrel(args ...interface{}) ([]interface{}, error)
 	update(in interface{}) (interface{}, error)
 	insert(in ...interface{}) (interface{}, error)
 	remove(v ...interface{}) (interface{}, error)

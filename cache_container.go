@@ -1,10 +1,10 @@
 package cachewb
 
-
 import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -299,126 +299,201 @@ func (c *CacheContainer) getValueStr(a ...interface{}) string {
 	return strings.Join(s, "-")
 }
 
+func (c *CacheContainer) getKeysValues(m map[string]interface{}) (keys []string, values []interface{})  {
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		values = append(values, m[k])
+	}
+	return
+}
+func (c *CacheContainer) getIndexQuery(args ...string) (r string){
+
+	if len(args) > 0 {
+		r = strings.Join(args, "-")
+	}else{
+		r = args[0]
+	}
+	return r
+}
+
 // Return an object from cache. This method check cache first,
 // and then look in the storage, if not found.
 // It return result for uniqueIdentityValue, if it was one, if there were
 // more than one result, you should use Get()
 func (c *CacheContainer) GetOne(uniqueIdentityValue interface{}) (interface{}, error) {
-	valStr := c.getValueStr(uniqueIdentityValue)
-	if item, ok := c.getByLock(valStr); ok {
-		elem := reflect.ValueOf(item).Elem()
-		if elem.Kind() == reflect.Struct {
-			eme := elem.FieldByName("EmbedME")
-			if eme.IsValid() {
-				embedMe := eme.Interface().(EmbedME)
-				embedMe.lastAccess = time.Now()
-				eme.Set(reflect.ValueOf(embedMe))
-			}
-		}
-		return item, nil
-	} else {
-		res, e := c.storage.get([]string{c.uniqueIdentity}, []interface{}{uniqueIdentityValue})
-		if e == nil {
-			switch len(res) {
-			case 1:
-				elem := reflect.ValueOf(res[0]).Elem()
-				if elem.Kind() == reflect.Struct {
-					eme := elem.FieldByName("EmbedME")
-					if eme.IsValid() {
-						embedMe := eme.Interface().(EmbedME)
-						embedMe.lastAccess = time.Now()
-						embedMe.container = c
-						embedMe.parent = res[0]
-						eme.Set(reflect.ValueOf(embedMe))
-					}
-				}
-				c.mu.Lock()
-				defer c.mu.Unlock()
-				c.items[valStr] = res[0]
-				return res[0], e
-
-			case 0:
-				return nil, nil
-			default:
-				return nil, errors.New(fmt.Sprintf("there is more result for %s=%s. expected 1 result, found %d." +
-					" make sure uniqueIdentity of %s is unique" ,
-					c.uniqueIdentity, uniqueIdentityValue, len(res), c.uniqueIdentity))
-			}
-		}else {
-			return nil, e
-		}
+	r, ee := c.Get(map[string]interface{}{c.uniqueIdentity: uniqueIdentityValue})
+	if ee != nil {
+		return nil, ee
+	}
+	switch len(r) {
+	case 1:
+		return r[0], nil
+	case 0:
+		return nil, nil
+	default:
+		return nil, errors.New(fmt.Sprintf("there are many result for %s=%s. expected 1 result, found %d." +
+			" make sure uniqueIdentity of %s is unique" ,
+			c.uniqueIdentity, uniqueIdentityValue, len(r), c.uniqueIdentity))
 	}
 }
 
-func (c *CacheContainer) Get(keys []string, values[]interface{}) ([]interface{}, error) {
-	idxQueryName := strings.Join(keys, "-")
-	idxQueryValue := c.getValueStr(values...)
+func (c *CacheContainer) GetNEW(m ...interface{}) ([]interface{}, error) {
+	return nil, nil
+}
 
+func (c *CacheContainer) findInCache(idxQueryName string, idxQueryValue string) ([]interface{}, bool) {
 	if item, ok := c.getFromIndex(idxQueryName, idxQueryValue); ok {
-		//fmt.Println("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "got from cache", idxQueryName, idxQueryValue)
 		var a []interface{}
-		gg := true
-		// extend live time
 		item.lastAccess = time.Now()
 		for _, jj := range item.values {
 			if v, ok := c.getByLock(jj); ok {
 				a = append(a, v)
 			} else {
-				gg = false
-				//fmt.Println("EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE", "inconsistency in cache", idxQueryName, idxQueryValue)
-				break
+				return nil, false
 			}
 		}
-		if gg {
-			return a, nil
-		}
+		return a, true
 	}
-	//fmt.Println("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", "got from storage", idxQueryName, idxQueryValue)
-	var a []interface{}
-	res, e := c.storage.get(keys, values)
-	if len(res) > 0 {
-		if e == nil {
-			c.mu.Lock()
-			defer c.mu.Unlock()
-			c.muIndex.Lock()
-			defer c.muIndex.Unlock()
-			var idxQueryResultIds []string
-			for _, item := range res {
-				idString := ""
-
-				elem := reflect.ValueOf(item).Elem()
-				if elem.Kind() == reflect.Struct {
-					usedId := elem.FieldByName(c.uniqueIdentity)
-					if usedId.IsValid() {
-						idString = fmt.Sprintf("%v", usedId.Interface())
-						idxQueryResultIds = append(idxQueryResultIds, idString)
-
-					}
-					eme := elem.FieldByName("EmbedME")
-					if eme.IsValid() {
-						embedMe := eme.Interface().(EmbedME)
-						embedMe.lastAccess = time.Now()
-						embedMe.container = c
-						embedMe.parent = item
-						eme.Set(reflect.ValueOf(embedMe))
-					}
-				}
-				if idString != "" {
-					if existedItem, ok := c.items[idString]; ok {
-						a = append(a, existedItem)
-					} else {
-						a = append(a, item)
-						c.items[idString] = item
-					}
-				}
-			}
-			c.queryIndex[idxQueryName][idxQueryValue] = &cacheIndexEntry{values: idxQueryResultIds, lastAccess: time.Now()}
-		}
-	} else {
-		// TODO      handle empty query
-	}
-	return a, e
+	return nil, false
 }
+
+func (c *CacheContainer) normalizeAndSaveInCache(idxQueryName string, idxQueryValue string,  d []interface{}) ([]interface{}, error) {
+	var a []interface{}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.muIndex.Lock()
+	defer c.muIndex.Unlock()
+	var idxQueryResultIds []string
+	for _, item := range d {
+		idString := ""
+		elem := reflect.ValueOf(item).Elem()
+		if elem.Kind() == reflect.Struct {
+			usedId := elem.FieldByName(c.uniqueIdentity)
+			if usedId.IsValid() {
+				idString = fmt.Sprintf("%v", usedId.Interface())
+				idxQueryResultIds = append(idxQueryResultIds, idString)
+			}
+			eme := elem.FieldByName("EmbedME")
+			if eme.IsValid() {
+				embedMe := eme.Interface().(EmbedME)
+				embedMe.lastAccess = time.Now()
+				embedMe.container = c
+				embedMe.parent = item
+				eme.Set(reflect.ValueOf(embedMe))
+			}
+		}
+		if idString != "" {
+			if existedItem, ok := c.items[idString]; ok {
+				a = append(a, existedItem)
+			} else {
+				a = append(a, item)
+				c.items[idString] = item
+			}
+		}
+	}
+	c.queryIndex[idxQueryName][idxQueryValue] = &cacheIndexEntry{values: idxQueryResultIds, lastAccess: time.Now()}
+	return a, nil
+}
+
+func (c *CacheContainer) Get(m map[string]interface{}) ([]interface{}, error) {
+	keys, values := c.getKeysValues(m)
+	idxQueryName := c.getIndexQuery(keys...)
+	idxQueryValue := c.getValueStr(values...)
+
+	if res, ok := c.findInCache(idxQueryName, idxQueryValue); ok{
+		return res, nil
+	}
+	res, e := c.storage.getOld(keys, values)
+	if e == nil && len(res) > 0{
+		return c.normalizeAndSaveInCache(idxQueryName, idxQueryValue, res)
+	}
+	return nil, nil
+}
+
+func (c *CacheContainer) GetBySquirrel(squirrelArgs ...interface{}) ([]interface{}, error) {
+	idxQueryName := c.getIndexQuery(squirrelArgs[0].(string))
+	idxQueryValue := c.getValueStr(squirrelArgs[1].([]interface{})...)
+	if res, ok := c.findInCache(idxQueryName, idxQueryValue); ok{
+		return res, nil
+	}
+	res, e := c.storage.getBySquirrel(squirrelArgs...)
+	if e == nil && len(res) > 0{
+		return c.normalizeAndSaveInCache(idxQueryName, idxQueryValue, res)
+	}
+	return nil, nil
+}
+
+//func (c *CacheContainer) GetOlddddddd(m map[string]interface{}) ([]interface{}, error) {
+//	keys, values := c.getKeysValues(m)
+//	idxQueryName := c.getIndexQuery(keys...)
+//	idxQueryValue := c.getValueStr(values...)
+//
+//	if item, ok := c.getFromIndex(idxQueryName, idxQueryValue); ok {
+//		//fmt.Println("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "got from cache", idxQueryName, idxQueryValue)
+//		var a []interface{}
+//		gg := true
+//		// extend live time
+//		item.lastAccess = time.Now()
+//		for _, jj := range item.values {
+//			if v, ok := c.getByLock(jj); ok {
+//				a = append(a, v)
+//			} else {
+//				gg = false
+//				break
+//			}
+//		}
+//		if gg {
+//			return a, nil
+//		}
+//	}
+//	//fmt.Println("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", "got from storage", idxQueryName, idxQueryValue)
+//	var a []interface{}
+//	if len(res) > 0 {
+//		if e == nil {
+//			c.mu.Lock()
+//			defer c.mu.Unlock()
+//			c.muIndex.Lock()
+//			defer c.muIndex.Unlock()
+//			var idxQueryResultIds []string
+//			for _, item := range res {
+//				idString := ""
+//
+//				elem := reflect.ValueOf(item).Elem()
+//				if elem.Kind() == reflect.Struct {
+//					usedId := elem.FieldByName(c.uniqueIdentity)
+//					if usedId.IsValid() {
+//						idString = fmt.Sprintf("%v", usedId.Interface())
+//						idxQueryResultIds = append(idxQueryResultIds, idString)
+//
+//					}
+//					eme := elem.FieldByName("EmbedME")
+//					if eme.IsValid() {
+//						embedMe := eme.Interface().(EmbedME)
+//						embedMe.lastAccess = time.Now()
+//						embedMe.container = c
+//						embedMe.parent = item
+//						eme.Set(reflect.ValueOf(embedMe))
+//					}
+//				}
+//				if idString != "" {
+//					if existedItem, ok := c.items[idString]; ok {
+//						a = append(a, existedItem)
+//					} else {
+//						a = append(a, item)
+//						c.items[idString] = item
+//					}
+//				}
+//			}
+//			c.queryIndex[idxQueryName][idxQueryValue] = &cacheIndexEntry{values: idxQueryResultIds, lastAccess: time.Now()}
+//		}
+//	} else {
+//		// TODO      handle empty query
+//	}
+//	return a, e
+//}
 
 // Insert object(s) to container. the object will add to database synchronously,
 func (c *CacheContainer) Insert(in ...interface{}) (interface{}, error) {
@@ -451,7 +526,7 @@ func (c *CacheContainer) RemoveIndirect(keys []string, values[]interface{}) (int
 	if c.lockUpdate {
 		return nil, errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
 	}
-	res, e := c.storage.get(keys, values)
+	res, e := c.storage.getOld(keys, values)
 	var uniqueIdentities [] interface{}
 	if len(res) > 0 {
 		if e == nil {
