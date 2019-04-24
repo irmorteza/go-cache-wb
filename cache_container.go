@@ -258,13 +258,7 @@ func (c *CacheContainer) Flush(withLock bool) error{
 		c.lockUpdate = true
 	}
 	for _, item := range c.items {
-		val := reflect.ValueOf(item)
-		elem := val.Elem()
-		f1 := elem.FieldByName("updates")
-
-		if f1.Int() > 0 {
-			val.MethodByName("UpdateStorage").Call([]reflect.Value{}) // TODO may this line need go
-		}
+		reflect.ValueOf(item).MethodByName("UpdateStorage").Call([]reflect.Value{})
 	}
 	return nil
 }
@@ -396,6 +390,9 @@ func (c *CacheContainer) normalizeAndSaveInCache(idxQueryName string, idxQueryVa
 	}
 	c.queryIndex[idxQueryName][idxQueryValue] = &cacheIndexEntry{values: idxQueryResultIds, lastAccess: time.Now()}
 	return a, nil
+}
+func (c *CacheContainer) GetConfig() {
+	fmt.Println("****", c.name, "",c.config.AccessTTL)
 }
 
 func (c *CacheContainer) Get(m map[string]interface{}) ([]interface{}, error) {
@@ -536,11 +533,9 @@ func (c *EmbedME) UpdateStorage() error{
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.updates > 0 {
-		fmt.Println("Let update, updates= ", c.updates)
-		c.container.storage.update(c.parent)
-		c.updates = 0
-	}
+	fmt.Println("Let update, updates= ", c.updates)
+	c.container.storage.update(c.parent)
+	c.updates = 0
 	return nil
 }
 

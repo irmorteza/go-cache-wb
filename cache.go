@@ -4,27 +4,26 @@ import "fmt"
 
 type CacheWB struct {
 	containers map[string]*CacheContainer
-	config     Config
+	//config     Config
 }
-
 
 // Get the container of given table name, with type of objType,
 // objType is a variable of an structure that will contain a row of table
-func (c *CacheWB) GetContainer(tableName string, objType interface{}) *CacheContainer {
+func (c *CacheWB) GetContainer(tableName string, cfg Config, objType interface{}) *CacheContainer {
 	if item, ok := c.containers[tableName]; ok {
 		return item
 	} else {
-		m := newContainer(tableName, c.config, objType)
+		m := newContainer(tableName, cfg, objType)
 		c.containers[tableName] = m
 		return m
 	}
 }
 
-func (c *CacheWB) GetViewContainer(viewName string, viewQuery string, objType interface{}) *CacheContainer{
+func (c *CacheWB) GetViewContainer(viewName string, viewQuery string, cfg Config, objType interface{}) *CacheContainer{
 	if item, ok := c.containers[viewName]; ok {
 		return item
 	} else {
-		m := newViewContainer(viewName, viewQuery, c.config, objType)
+		m := newViewContainer(viewName, viewQuery, cfg, objType)
 		c.containers[viewName] = m
 		return m
 	}
@@ -74,9 +73,8 @@ type Config struct {
 }
 
 // Get an CacheWB variable
-func NewCacheWB(cfg Config) *CacheWB {
+func NewCacheWB() *CacheWB {
 	s := &CacheWB{}
-	s.config = cfg
 	s.containers = make(map[string]*CacheContainer)
 	return s
 }
