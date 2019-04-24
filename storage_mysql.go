@@ -148,96 +148,7 @@ func (c *mySQL) checkConnection() {
 	}
 }
 
-//func (c *mySQL) get(args ...interface{}) ([]interface{}, error) {
-//	fmt.Println(args)
-//	fmt.Println(args[0])
-//	fmt.Println(args[1])
-//	return nil, nil
-//	whereClause := ""
-//	for _, a := range keys {
-//		if len(whereClause) > 0 {
-//			whereClause = fmt.Sprintf("%s and %s = ?", whereClause, a)
-//		} else {
-//			whereClause = fmt.Sprintf("%s = ?", a)
-//		}
-//	}
-//	q := ""
-//	if c.isView{
-//
-//		if strings.Contains(strings.ToLower(c.viewQuery), "where"){
-//			q = fmt.Sprintf("%s and %s;", c.viewQuery, whereClause)
-//		}else {
-//			q = fmt.Sprintf("%s where %s;", c.viewQuery, whereClause)
-//		}
-//	}else {
-//		q = fmt.Sprintf("%s where %s;", c.selectQueryPre, whereClause)
-//	}
-//	//fmt.Println(q)
-//	var resArr []interface{}
-//	c.checkConnection()
-//
-//	stmt, err := c.mysqlDB.Prepare(q)
-//	if err != nil {
-//		panic(err)
-//	}
-//	defer stmt.Close()
-//	rows, err := stmt.Query(values...)
-//	if err != nil {
-//		panic(err)
-//	}
-//
-//	columns, _ := rows.Columns()
-//	count := len(columns)
-//	resValues := make([]interface{}, count)
-//	resValuePtrs := make([]interface{}, count)
-//
-//	for rows.Next() {
-//		val := reflect.New(reflect.TypeOf(c.itemTemplate))
-//		elem := val.Elem()
-//		for i := range columns {
-//			resValuePtrs[i] = &resValues[i]
-//		}
-//		rows.Scan(resValuePtrs...)
-//		//fmt.Println(resValues)
-//		for i, col := range columns {
-//			val := resValues[i]
-//			resByte, okByte := val.([]byte)
-//			if elem.Kind() == reflect.Struct {
-//				if c2, ok := c.fieldsMap[col]; ok {
-//					f := elem.FieldByName(c2)
-//					if f.IsValid() && f.CanSet() {
-//						//fmt.Println("##### Consider me ", c2, f.Kind(), reflect.TypeOf(val), val)
-//						if f.Kind() == reflect.Float64 {
-//							if okByte {
-//								//(float64) supported mysql data types : decimal
-//								r, _ := strconv.ParseFloat(string(resByte), 64)
-//								f.SetFloat(r)
-//							} else {
-//								//(float64) supported mysql data types : double, real
-//								f.Set(reflect.ValueOf(val))
-//							}
-//						} else if f.Kind() == reflect.Slice {
-//							// ([]byte) supported mysql data types : binary, tinyblob
-//							f.Set(reflect.ValueOf(val))
-//						} else if f.Kind() == reflect.String {
-//							// (string) supported mysql data types :varchar, varbinary, tinytext
-//							if okByte {
-//								f.Set(reflect.ValueOf(string(resByte)))
-//							}
-//						} else if val != nil{
-//							//fmt.Println(c2, val)
-//							f.Set(reflect.ValueOf(val))
-//						}
-//					}
-//				}
-//			}
-//		}
-//		resArr = append(resArr, val.Interface())
-//	}
-//	return resArr, nil
-//}
-
-func (c *mySQL) getOld(keys []string, values[]interface{}) ([]interface{}, error) {
+func (c *mySQL) get(keys []string, values[]interface{}) ([]interface{}, error) {
 	whereClause := ""
 	for _, a := range keys {
 		if len(whereClause) > 0 {
@@ -248,14 +159,17 @@ func (c *mySQL) getOld(keys []string, values[]interface{}) ([]interface{}, error
 	}
 	q := ""
 	if c.isView{
-
-		if strings.Contains(strings.ToLower(c.viewQuery), "where"){
-			q = fmt.Sprintf("%s and %s;", c.viewQuery, whereClause)
-		}else {
+		if len(whereClause) > 0{
 			q = fmt.Sprintf("%s where %s;", c.viewQuery, whereClause)
+		}else{
+			q = c.viewQuery
 		}
 	}else {
-		q = fmt.Sprintf("%s where %s;", c.selectQueryPre, whereClause)
+		if len(whereClause) > 0 {
+			q = fmt.Sprintf("%s where %s;", c.selectQueryPre, whereClause)
+		}else{
+			q = c.selectQueryPre
+		}
 	}
 	//fmt.Println(q)
 	var resArr []interface{}
@@ -323,28 +237,14 @@ func (c *mySQL) getOld(keys []string, values[]interface{}) ([]interface{}, error
 }
 
 func (c *mySQL) getBySquirrel(squirrelArgs ...interface{}) ([]interface{}, error){
-	//whereClause := ""
-	//for _, a := range keys {
-	//	if len(whereClause) > 0 {
-	//		whereClause = fmt.Sprintf("%s and %s = ?", whereClause, a)
-	//	} else {
-	//		whereClause = fmt.Sprintf("%s = ?", a)
-	//	}
-	//}
+
 	q := ""
 	if c.isView{
 		q = fmt.Sprintf("%s where %s;", c.viewQuery, squirrelArgs[0])
-		//if strings.Contains(strings.ToLower(c.viewQuery), "where"){
-		//	q = fmt.Sprintf("%s and %s;", c.viewQuery, whereClause)
-		//}else {
-		//	q = fmt.Sprintf("%s where %s;", c.viewQuery, whereClause)
-		//}
 	}else {
 		q = fmt.Sprintf("%s where %s;", c.selectQueryPre, squirrelArgs[0])
 	}
-	fmt.Println(len(squirrelArgs[1].([]interface{})))
-
-	//q := fmt.Sprintf("%s where %s;", c.selectQueryPre, squirrelArgs[0])
+	//fmt.Println(len(squirrelArgs[1].([]interface{})))
 	//fmt.Println(q)
 	var resArr []interface{}
 	c.checkConnection()

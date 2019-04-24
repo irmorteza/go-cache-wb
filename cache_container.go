@@ -314,7 +314,7 @@ func (c *CacheContainer) getIndexQuery(args ...string) (r string){
 	if len(args) > 0 {
 		r = strings.Join(args, "-")
 	}else{
-		r = args[0]
+		r = ""
 	}
 	return r
 }
@@ -406,7 +406,7 @@ func (c *CacheContainer) Get(m map[string]interface{}) ([]interface{}, error) {
 	if res, ok := c.findInCache(idxQueryName, idxQueryValue); ok{
 		return res, nil
 	}
-	res, e := c.storage.getOld(keys, values)
+	res, e := c.storage.get(keys, values)
 	if e == nil && len(res) > 0{
 		return c.normalizeAndSaveInCache(idxQueryName, idxQueryValue, res)
 	}
@@ -425,75 +425,6 @@ func (c *CacheContainer) GetBySquirrel(squirrelArgs ...interface{}) ([]interface
 	}
 	return nil, nil
 }
-
-//func (c *CacheContainer) GetOlddddddd(m map[string]interface{}) ([]interface{}, error) {
-//	keys, values := c.getKeysValues(m)
-//	idxQueryName := c.getIndexQuery(keys...)
-//	idxQueryValue := c.getValueStr(values...)
-//
-//	if item, ok := c.getFromIndex(idxQueryName, idxQueryValue); ok {
-//		//fmt.Println("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "got from cache", idxQueryName, idxQueryValue)
-//		var a []interface{}
-//		gg := true
-//		// extend live time
-//		item.lastAccess = time.Now()
-//		for _, jj := range item.values {
-//			if v, ok := c.getByLock(jj); ok {
-//				a = append(a, v)
-//			} else {
-//				gg = false
-//				break
-//			}
-//		}
-//		if gg {
-//			return a, nil
-//		}
-//	}
-//	//fmt.Println("BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", "got from storage", idxQueryName, idxQueryValue)
-//	var a []interface{}
-//	if len(res) > 0 {
-//		if e == nil {
-//			c.mu.Lock()
-//			defer c.mu.Unlock()
-//			c.muIndex.Lock()
-//			defer c.muIndex.Unlock()
-//			var idxQueryResultIds []string
-//			for _, item := range res {
-//				idString := ""
-//
-//				elem := reflect.ValueOf(item).Elem()
-//				if elem.Kind() == reflect.Struct {
-//					usedId := elem.FieldByName(c.uniqueIdentity)
-//					if usedId.IsValid() {
-//						idString = fmt.Sprintf("%v", usedId.Interface())
-//						idxQueryResultIds = append(idxQueryResultIds, idString)
-//
-//					}
-//					eme := elem.FieldByName("EmbedME")
-//					if eme.IsValid() {
-//						embedMe := eme.Interface().(EmbedME)
-//						embedMe.lastAccess = time.Now()
-//						embedMe.container = c
-//						embedMe.parent = item
-//						eme.Set(reflect.ValueOf(embedMe))
-//					}
-//				}
-//				if idString != "" {
-//					if existedItem, ok := c.items[idString]; ok {
-//						a = append(a, existedItem)
-//					} else {
-//						a = append(a, item)
-//						c.items[idString] = item
-//					}
-//				}
-//			}
-//			c.queryIndex[idxQueryName][idxQueryValue] = &cacheIndexEntry{values: idxQueryResultIds, lastAccess: time.Now()}
-//		}
-//	} else {
-//		// TODO      handle empty query
-//	}
-//	return a, e
-//}
 
 // Insert object(s) to container. the object will add to database synchronously,
 func (c *CacheContainer) Insert(in ...interface{}) (interface{}, error) {
@@ -526,7 +457,7 @@ func (c *CacheContainer) RemoveIndirect(keys []string, values[]interface{}) (int
 	if c.lockUpdate {
 		return nil, errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
 	}
-	res, e := c.storage.getOld(keys, values)
+	res, e := c.storage.get(keys, values)
 	var uniqueIdentities [] interface{}
 	if len(res) > 0 {
 		if e == nil {
