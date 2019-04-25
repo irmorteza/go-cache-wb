@@ -55,21 +55,68 @@ func (c *CacheWB) GracefulShutdown() bool {
 }
 
 type Config struct {
-	//
-	Interval              int
-	CacheWriteLatencyTime int
-	// For a object in container, it represent maximum cache update
-	// in time of CacheWriteLatencyTime need to make flush object
-	CacheWriteLatencyCount int
-	// Type of database, that cache should support
+	// Interval of maintainer worker.
+	// The worker check items of cache for theirs update and time to live status
+	// Default is 10 seconds
+	IntervalWorkerMaintainer int
+	// Interval of QueryIndexMaintainer worker.
+	// QueryIndexMaintainer check items of QueryIndex in cache for theirs time to live status
+	// Default is 500 seconds
+	IntervalWorkerQueryIndexMaintainer int
+	// Maximum time, Insert worker wait for new update to make batch insert.
+	// This parameter is corresponding to InsertAsync
+	// Default is 1 second
+	CacheInsertAsyncLatency int
+	// For an item in cache: Maximum time after last update, that updates flush to storage
+	// Default is 30 seconds
+	CacheFlushUpdatesLatencyTime int
+	// For an item in cache: Maximum updates count, that updates flush to storage
+	// Default is 10 seconds
+	CacheFlushUpdatesLatencyCount int
+	// Type of database
 	StorageName StorageKind
 	// Config of database is using
 	Database interface{}
-	// Maximum time, an object keep in cache after last access
-	AccessTTL int
-	// Maximum time, an query index keep in cache after last access
-	AccessQueryIndexTTL int
-	AsyncInsertLatency  int
+	// Maximum time an item will remain in cache without any access. Then it will be removed
+	// Default is 10 seconds
+	AccessTTLItems int
+	// Maximum time an QueryIndex will remain in cache without any access. Then it will be removed
+	// Default is 10 seconds
+	AccessTTLQueryIndex int
+}
+
+const (
+	IntervalWorkerMaintainer = 10
+	IntervalWorkerQueryIndexMaintainer = 500
+	CacheInsertAsyncLatency = 1
+	CacheFlushUpdatesLatencyTime = 30
+	CacheFlushUpdatesLatencyCount = 10
+	AccessTTLItems = 10
+	AccessTTLQueryIndex = 10
+)
+
+func (c *Config)checkDefaults() {
+	if c.IntervalWorkerMaintainer == 0 {
+		c.IntervalWorkerMaintainer = IntervalWorkerMaintainer
+	}
+	if c.IntervalWorkerQueryIndexMaintainer == 0 {
+		c.IntervalWorkerQueryIndexMaintainer = IntervalWorkerQueryIndexMaintainer
+	}
+	if c.CacheInsertAsyncLatency == 0 {
+		c.CacheInsertAsyncLatency = CacheInsertAsyncLatency
+	}
+	if c.CacheFlushUpdatesLatencyTime == 0 {
+		c.CacheFlushUpdatesLatencyTime = CacheFlushUpdatesLatencyTime
+	}
+	if c.CacheFlushUpdatesLatencyCount == 0 {
+		c.CacheFlushUpdatesLatencyCount = CacheFlushUpdatesLatencyCount
+	}
+	if c.AccessTTLItems == 0 {
+		c.AccessTTLItems = AccessTTLItems
+	}
+	if c.AccessTTLQueryIndex == 0 {
+		c.AccessTTLQueryIndex = AccessTTLQueryIndex
+	}
 }
 
 // Get an CacheWB variable

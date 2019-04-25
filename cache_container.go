@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-const AsyncInsertLatency  = 5
-
 type CacheContainer struct {
 	storage        storage
 	config         Config
@@ -49,9 +47,8 @@ func newContainer(containerName string, cfg Config, containerType interface{}) *
 	m.itemType = containerType
 	m.config = cfg
 	// set default values of config
-	if m.config.AsyncInsertLatency == 0{
-		m.config.AsyncInsertLatency = AsyncInsertLatency
-	}
+	m.config.checkDefaults()
+
 	m.name = containerName
 	m.storage = newStorage(containerName, "", cfg, containerType)
 	m.items = make(map[interface{}]interface{})
@@ -82,9 +79,8 @@ func newViewContainer(containerName string, viewQuery string , cfg Config, conta
 	m.itemType = containerType
 	m.config = cfg
 	// set default values of config
-	if m.config.AsyncInsertLatency == 0{
-		m.config.AsyncInsertLatency = AsyncInsertLatency
-	}
+	m.config.checkDefaults()
+
 	m.name = containerName
 	m.isView = true
 	m.storage = newStorage("", viewQuery, cfg, containerType)
@@ -135,7 +131,7 @@ func (c *CacheContainer) workerConsumerUpdater() {
 
 func (c *CacheContainer) workerMaintainer() {
 	for {
-		t := time.After(time.Second * time.Duration(c.config.Interval))
+		t := time.After(time.Second * time.Duration(c.config.IntervalWorkerMaintainer))
 		select {
 		case <-t:
 			func() {
@@ -154,14 +150,13 @@ func (c *CacheContainer) workerMaintainer() {
 					if eme.IsValid() {
 						embedMe := eme.Interface().(EmbedME)
 						if ! c.isView {
-							if embedMe.updates > c.config.CacheWriteLatencyCount {
+							if embedMe.updates > c.config.CacheFlushUpdatesLatencyCount {
 								e := c.addToChanUpdates(item)
 								if e != nil {
 									// TODO  handle error
 								}
-
 							} else if embedMe.updates > 0 &&
-								time.Since(embedMe.lastUpdate).Seconds() > float64(c.config.CacheWriteLatencyTime) {
+								time.Since(embedMe.lastUpdate).Seconds() > float64(c.config.CacheFlushUpdatesLatencyTime) {
 								e := c.addToChanUpdates(item)
 								if e != nil {
 									// TODO  handle error
@@ -181,7 +176,7 @@ func (c *CacheContainer) workerMaintainer() {
 
 func (c *CacheContainer) workerQueryIndexMaintainer() {
 	for {
-		t := time.After(time.Second * time.Duration(c.config.Interval)) // TODO change time
+		t := time.After(time.Second * time.Duration(c.config.IntervalWorkerQueryIndexMaintainer)) // TODO change time
 		select {
 		case <-t:
 			func() {
@@ -196,7 +191,7 @@ func (c *CacheContainer) workerQueryIndexMaintainer() {
 					//fmt.Println("----", idxQueryName, item)
 					for idxQueryValue, idxQueryResultIds := range item{
 						//fmt.Println("-------", idxQueryValue, idxQueryResultIds.values)
-						if time.Since(idxQueryResultIds.lastAccess).Seconds() > float64(c.config.AccessQueryIndexTTL) {		// TODO
+						if time.Since(idxQueryResultIds.lastAccess).Seconds() > float64(c.config.AccessTTLQueryIndex) { // TODO
 							fmt.Println("****** Deleting", idxQueryValue)
 							delete(item, idxQueryValue)					// todo use lock
 						}
@@ -212,20 +207,14 @@ func (c *CacheContainer) workerInserts() {
 	buffer = make([]interface{}, 0)
 	ft := time.Now()
 	for {
-		if len(buffer) > 0 && time.Since(ft).Seconds() > 1 {
-			res, e := c.storage.insert(buffer...)
-			fmt.Println(fmt.Sprintf("workerInserts  found %d items. res:%s , error:%s", len(buffer), res, e))
-			buffer = make([]interface{}, 0)
-
-		}
-
-		t := time.After(time.Second * time.Duration(c.config.Interval))
+		t := time.After(time.Second * 1)
 		select {
 		case <-t:
-			if len(buffer) > 0 {
+			if len(buffer) > 0 && time.Since(ft).Seconds() > float64(c.config.CacheInsertAsyncLatency) {
 				res, e := c.storage.insert(buffer...)
-				fmt.Println(fmt.Sprintf("workerInserts found %d items. res:%s , error:%s", len(buffer), res, e))
+				fmt.Println(fmt.Sprintf("workerInserts  found %d items. res:%s , error:%s", len(buffer), res, e))
 				buffer = make([]interface{}, 0)
+
 			}
 
 		case item := <-c.chanInserts:
@@ -233,7 +222,8 @@ func (c *CacheContainer) workerInserts() {
 			if len(buffer) == 1 {
 				ft = time.Now()
 			}
-			if len(buffer) >= c.storage.getInsertLimit() {
+			if (len(buffer) >= c.storage.getInsertLimit()) ||
+				(len(buffer) > 0 && time.Since(ft).Seconds() > float64(c.config.CacheInsertAsyncLatency)) {
 				res, e := c.storage.insert(buffer...)
 				fmt.Println(fmt.Sprintf("workerInserts found %d items. res:%s , error:%s", len(buffer), res, e))
 				buffer = make([]interface{}, 0)
@@ -242,7 +232,7 @@ func (c *CacheContainer) workerInserts() {
 	}
 }
 
-
+// flush all updates in container to storage
 func (c *CacheContainer) Flush(withLock bool) error{
 	if c.isView{
 		return errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.name))
@@ -258,7 +248,13 @@ func (c *CacheContainer) Flush(withLock bool) error{
 		c.lockUpdate = true
 	}
 	for _, item := range c.items {
-		reflect.ValueOf(item).MethodByName("UpdateStorage").Call([]reflect.Value{})
+		val := reflect.ValueOf(item)
+		elem := val.Elem()
+		f1 := elem.FieldByName("updates")
+
+		if f1.Int() > 0 {
+			val.MethodByName("UpdateStorage").Call([]reflect.Value{})
+		}
 	}
 	return nil
 }
@@ -313,9 +309,9 @@ func (c *CacheContainer) getIndexQuery(args ...string) (r string){
 	return r
 }
 
-// Return an object from cache. This method check cache first,
-// and then look in the storage, if not found.
-// It return result for uniqueIdentityValue, if it was one, if there were
+// Return an Item from cache. This method check cache first,
+// and then search in storage, if not found.
+// It return result for uniqueIdentityValue, if there was, if there were
 // more than one result, you should use Get()
 func (c *CacheContainer) GetOne(uniqueIdentityValue interface{}) (interface{}, error) {
 	r, ee := c.Get(map[string]interface{}{c.uniqueIdentity: uniqueIdentityValue})
@@ -332,10 +328,6 @@ func (c *CacheContainer) GetOne(uniqueIdentityValue interface{}) (interface{}, e
 			" make sure uniqueIdentity of %s is unique" ,
 			c.uniqueIdentity, uniqueIdentityValue, len(r), c.uniqueIdentity))
 	}
-}
-
-func (c *CacheContainer) GetNEW(m ...interface{}) ([]interface{}, error) {
-	return nil, nil
 }
 
 func (c *CacheContainer) findInCache(idxQueryName string, idxQueryValue string) ([]interface{}, bool) {
@@ -391,10 +383,10 @@ func (c *CacheContainer) normalizeAndSaveInCache(idxQueryName string, idxQueryVa
 	c.queryIndex[idxQueryName][idxQueryValue] = &cacheIndexEntry{values: idxQueryResultIds, lastAccess: time.Now()}
 	return a, nil
 }
-func (c *CacheContainer) GetConfig() {
-	fmt.Println("****", c.name, "",c.config.AccessTTL)
-}
 
+// Return an array of Items from cache. This method check cache first,
+// and then search in storage, if not found.
+// parameter m stand for query
 func (c *CacheContainer) Get(m map[string]interface{}) ([]interface{}, error) {
 	keys, values := c.getKeysValues(m)
 	idxQueryName := c.getIndexQuery(keys...)
@@ -410,6 +402,10 @@ func (c *CacheContainer) Get(m map[string]interface{}) ([]interface{}, error) {
 	return nil, nil
 }
 
+// Return an array of Items from cache. This method check cache first,
+// and then search in storage, if not found.
+// parameter squirrelArgs is an where query build by squirrel library
+// you can find its document in github.com/Masterminds/squirrel
 func (c *CacheContainer) GetBySquirrel(squirrelArgs ...interface{}) ([]interface{}, error) {
 	idxQueryName := c.getIndexQuery(squirrelArgs[0].(string))
 	idxQueryValue := c.getValueStr(squirrelArgs[1].([]interface{})...)
@@ -423,7 +419,7 @@ func (c *CacheContainer) GetBySquirrel(squirrelArgs ...interface{}) ([]interface
 	return nil, nil
 }
 
-// Insert object(s) to container. the object will add to database synchronously,
+// Insert Items to container. Item add to database synchronously,
 func (c *CacheContainer) Insert(in ...interface{}) (interface{}, error) {
 	if c.isView{
 		return nil, errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.name))
@@ -434,7 +430,7 @@ func (c *CacheContainer) Insert(in ...interface{}) (interface{}, error) {
 	return c.storage.insert(in...)
 }
 
-// Asynchronously insert object(s) to container. the object will bulk insert to database.
+// Asynchronously insert items to container. Items bulk insert to database.
 func (c *CacheContainer) InsertAsync(in ...interface{}) error {
 	if c.isView{
 		return errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.name))
@@ -489,6 +485,7 @@ func (c *CacheContainer) Remove(uniqueIdentities ...interface{}) (interface{}, e
 	return c.storage.remove(uniqueIdentities...)
 }
 
+// Remove from cache just by uniqueIdentities
 func (c *CacheContainer) RemoveFromCache(uniqueIdentities ...interface{}) {
 	valStr := c.getValueStr(uniqueIdentities...)
 	if c.lockUpdate {
@@ -506,6 +503,7 @@ type EmbedME struct {
 	mu         sync.RWMutex
 }
 
+// Trigger cache for new update
 func (c *EmbedME) IncUpdate() error {
 	if c.container.isView{
 		return errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.container.name))
@@ -520,12 +518,13 @@ func (c *EmbedME) IncUpdate() error {
 	c.updates ++
 	c.lastUpdate = time.Now()
 	c.lastAccess = time.Now()
-	if c.updates >= c.container.config.CacheWriteLatencyCount {
+	if c.updates >= c.container.config.CacheFlushUpdatesLatencyCount {
 		c.container.chanUpdates <- c.parent
 	}
 	return nil
 }
 
+// Flush updates of holder item in storage
 func (c *EmbedME) UpdateStorage() error{
 	if c.container.isView{
 		return errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.container.name))
@@ -540,8 +539,8 @@ func (c *EmbedME) UpdateStorage() error{
 }
 
 func (c *EmbedME) ttlReached() bool {
-	if c.container.config.AccessTTL != 0 &&
-		int(time.Since(c.lastAccess).Seconds()) > c.container.config.AccessTTL &&
+	if c.container.config.AccessTTLItems != 0 &&
+		int(time.Since(c.lastAccess).Seconds()) > c.container.config.AccessTTLItems &&
 		c.updates == 0 {
 		return true
 	} else {
