@@ -232,7 +232,7 @@ func (c *CacheContainer) workerInserts() {
 	}
 }
 
-// flush all updates in container to storage
+// Flush all updates in container to storage
 func (c *CacheContainer) Flush(withLock bool) error{
 	if c.isView{
 		return errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.name))
