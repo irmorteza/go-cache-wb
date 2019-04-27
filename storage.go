@@ -3,9 +3,9 @@ package cachewb
 type storage interface {
 	get(keys []string, values[]interface{}) ([]interface{}, error)
 	getBySquirrel(args ...interface{}) ([]interface{}, error)
-	update(in interface{}) (interface{}, error)
-	insert(in ...interface{}) (interface{}, error)
-	remove(v ...interface{}) (interface{}, error)
+	update(in interface{}) (map[string]int64, error)
+	insert(in ...interface{}) (map[string]int64, error)
+	remove(v ...interface{}) (map[string]int64, error)
 	getInsertLimit() int
 }
 

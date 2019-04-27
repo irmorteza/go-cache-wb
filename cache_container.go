@@ -212,7 +212,7 @@ func (c *CacheContainer) workerInserts() {
 		case <-t:
 			if len(buffer) > 0 && time.Since(ft).Seconds() > float64(c.config.CacheInsertAsyncLatency) {
 				res, e := c.storage.insert(buffer...)
-				fmt.Println(fmt.Sprintf("workerInserts  found %d items. res:%s , error:%s", len(buffer), res, e))
+				fmt.Println(fmt.Sprintf("workerInserts  found %d items. res:%v , error:%s", len(buffer), res, e))
 				buffer = make([]interface{}, 0)
 
 			}
@@ -225,7 +225,7 @@ func (c *CacheContainer) workerInserts() {
 			if (len(buffer) >= c.storage.getInsertLimit()) ||
 				(len(buffer) > 0 && time.Since(ft).Seconds() > float64(c.config.CacheInsertAsyncLatency)) {
 				res, e := c.storage.insert(buffer...)
-				fmt.Println(fmt.Sprintf("workerInserts found %d items. res:%s , error:%s", len(buffer), res, e))
+				fmt.Println(fmt.Sprintf("workerInserts found %d items. res:%v , error:%s", len(buffer), res, e))
 				buffer = make([]interface{}, 0)
 			}
 		}
@@ -420,7 +420,7 @@ func (c *CacheContainer) GetBySquirrel(squirrelArgs ...interface{}) ([]interface
 }
 
 // Insert Items to container. Item add to database synchronously,
-func (c *CacheContainer) Insert(in ...interface{}) (interface{}, error) {
+func (c *CacheContainer) Insert(in ...interface{}) (map[string]int64, error) {
 	if c.isView{
 		return nil, errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.name))
 	}
@@ -443,13 +443,15 @@ func (c *CacheContainer) InsertAsync(in ...interface{}) error {
 // Unlike method `Remove`, You can use `RemoveIndirect` to remove from cache and storage by any keys.
 // First, RemoveIndirect call storage.Get() by keys and values arguments, internally, to find uniqueIdentities.
 // And then remove then by uniqueIdentities through the `Remove` method
-func (c *CacheContainer) RemoveIndirect(keys []string, values[]interface{}) (interface{}, error) {
+func (c *CacheContainer) RemoveIndirect(m map[string]interface{}) (map[string]int64, error) {
 	if c.isView{
 		return nil, errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.name))
 	}
 	if c.lockUpdate {
 		return nil, errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
 	}
+	keys, values := c.getKeysValues(m)
+
 	res, e := c.storage.get(keys, values)
 	var uniqueIdentities [] interface{}
 	if len(res) > 0 {
@@ -469,12 +471,12 @@ func (c *CacheContainer) RemoveIndirect(keys []string, values[]interface{}) (int
 		c.RemoveFromCache(uniqueIdentities...)
 		return c.storage.remove(uniqueIdentities...)
 	}else {
-		return map[string]interface{}{"LastInsertId": 0, "RowsAffected": 0}, nil
+		return map[string]int64{"LastInsertId": 0, "RowsAffected": 0}, nil
 	}
 }
 
 // Remove from cache and storage just by uniqueIdentities
-func (c *CacheContainer) Remove(uniqueIdentities ...interface{}) (interface{}, error) {
+func (c *CacheContainer) Remove(uniqueIdentities ...interface{}) (map[string]int64, error) {
 	if c.isView{
 		return nil, errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.name))
 	}

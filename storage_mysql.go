@@ -310,7 +310,7 @@ func (c *mySQL) getBySquirrel(squirrelArgs ...interface{}) ([]interface{}, error
 	return resArr, nil
 }
 
-func (c *mySQL) update(in interface{}) (interface{}, error) {
+func (c *mySQL) update(in interface{}) (map[string]int64, error) {
 	if c.isView {
 		return nil, errors.New("view does not support update")
 	}
@@ -341,7 +341,7 @@ func (c *mySQL) update(in interface{}) (interface{}, error) {
 	return m, nil
 }
 
-func (c *mySQL) insert(args ...interface{}) (interface{}, error) {
+func (c *mySQL) insert(args ...interface{}) (map[string]int64, error) {
 	if c.isView {
 		return nil, errors.New("view does not support insert")
 	}
@@ -379,7 +379,7 @@ func (c *mySQL) insert(args ...interface{}) (interface{}, error) {
 	return m, nil
 }
 
-func (c *mySQL) remove(args ...interface{}) (interface{}, error) {
+func (c *mySQL) remove(args ...interface{}) (map[string]int64, error) {
 	if c.isView {
 		return nil, errors.New("view does not support remove")
 	}
