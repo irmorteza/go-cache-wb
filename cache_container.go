@@ -3,6 +3,7 @@ package cachewb
 import (
 	"errors"
 	"fmt"
+	"log"
 	"reflect"
 	"sort"
 	"strings"
@@ -22,6 +23,8 @@ type CacheContainer struct {
 	queryIndex     map[string]map[string]*cacheIndexEntry
 	chanUpdates    chan interface{}
 	chanInserts    chan interface{}
+	insertABuffer  []interface{}
+	statistic      statisticContainer
 	mu             sync.RWMutex
 	muIndex        sync.RWMutex
 }
@@ -54,7 +57,9 @@ func newContainer(containerName string, cfg Config, containerType interface{}) *
 	m.items = make(map[interface{}]interface{})
 	m.queryIndex = make(map[string]map[string]*cacheIndexEntry)
 	m.chanUpdates = make(chan interface{}, 1000)
-	m.chanInserts = make(chan interface{}, 10000)
+	m.chanInserts = make(chan interface{}, 100000)
+	m.insertABuffer= make([]interface{}, 0)
+	m.statistic.enabled = m.config.Statistic
 	m.setManager()
 	return &m
 }
@@ -88,6 +93,8 @@ func newViewContainer(containerName string, viewQuery string , cfg Config, conta
 	m.queryIndex = make(map[string]map[string]*cacheIndexEntry)
 	m.chanUpdates = make(chan interface{}, 1000)
 	m.chanInserts = make(chan interface{}, 10000)
+	m.insertABuffer= make([]interface{}, 0)
+	m.statistic.enabled = m.config.Statistic
 	m.setManager()
 	return &m
 }
@@ -123,7 +130,6 @@ func (c *CacheContainer) workerConsumerUpdater() {
 	for {
 		select {
 		case item := <-c.chanUpdates:
-			fmt.Println("Hello Worker. I want update:", item)
 			reflect.ValueOf(item).MethodByName("UpdateStorage").Call([]reflect.Value{})
 		}
 	}
@@ -164,7 +170,9 @@ func (c *CacheContainer) workerMaintainer() {
 							}
 						}
 						if embedMe.ttlReached() {
-							fmt.Println("TTL Reached")
+							if c.config.Log {
+								log.Printf("TTL Reached")
+							}
 							c.RemoveFromCache(n)
 						}
 					}
@@ -203,30 +211,33 @@ func (c *CacheContainer) workerQueryIndexMaintainer() {
 }
 
 func (c *CacheContainer) workerInserts() {
-	var buffer []interface{}
-	buffer = make([]interface{}, 0)
 	ft := time.Now()
 	for {
 		t := time.After(time.Second * 1)
 		select {
 		case <-t:
-			if len(buffer) > 0 && time.Since(ft).Seconds() > float64(c.config.CacheInsertAsyncLatency) {
-				res, e := c.storage.insert(buffer...)
-				fmt.Println(fmt.Sprintf("workerInserts  found %d items. res:%v , error:%s", len(buffer), res, e))
-				buffer = make([]interface{}, 0)
-
+			if len(c.insertABuffer) > 0 && time.Since(ft).Seconds() > float64(c.config.CacheInsertAsyncLatency) {
+				res, e := c.storage.insert(c.insertABuffer...)
+				c.statistic.incStatisticStorageInserts()
+				if c.config.Log {
+					log.Printf("workerInserts  found %d items. res:%v , error:%s", len(c.insertABuffer), res, e)
+				}
+				c.insertABuffer = make([]interface{}, 0)
 			}
 
 		case item := <-c.chanInserts:
-			buffer = append(buffer, item.([]interface{})...)
-			if len(buffer) == 1 {
+			c.insertABuffer = append(c.insertABuffer, item.([]interface{})...)
+			if len(c.insertABuffer) == 1 {
 				ft = time.Now()
 			}
-			if (len(buffer) >= c.storage.getInsertLimit()) ||
-				(len(buffer) > 0 && time.Since(ft).Seconds() > float64(c.config.CacheInsertAsyncLatency)) {
-				res, e := c.storage.insert(buffer...)
-				fmt.Println(fmt.Sprintf("workerInserts found %d items. res:%v , error:%s", len(buffer), res, e))
-				buffer = make([]interface{}, 0)
+			if (len(c.insertABuffer) >= c.storage.getInsertLimit()) ||
+				(len(c.insertABuffer) > 0 && time.Since(ft).Seconds() > float64(c.config.CacheInsertAsyncLatency)) {
+				res, e := c.storage.insert(c.insertABuffer...)
+				c.statistic.incStatisticStorageInserts()
+				if c.config.Log {
+					log.Printf("workerInserts found %d items. res:%v , error:%s", len(c.insertABuffer), res, e)
+				}
+				c.insertABuffer = make([]interface{}, 0)
 			}
 		}
 	}
@@ -299,6 +310,7 @@ func (c *CacheContainer) getKeysValues(m map[string]interface{}) (keys []string,
 	}
 	return
 }
+
 func (c *CacheContainer) getIndexQuery(args ...string) (r string){
 
 	if len(args) > 0 {
@@ -427,6 +439,8 @@ func (c *CacheContainer) Insert(in ...interface{}) (map[string]int64, error) {
 	if c.lockUpdate {
 		return nil, errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
 	}
+	c.statistic.incStatisticStorageInserts()
+	c.statistic.incStatisticCacheInserts()
 	return c.storage.insert(in...)
 }
 
@@ -436,13 +450,14 @@ func (c *CacheContainer) InsertAsync(in ...interface{}) error {
 		return errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.name))
 	}
 	go c.addToChanInserts(in)
+	c.statistic.incStatisticCacheInserts()
 	return nil
 }
 
 // Remove from cache and storage by any keys (caution: This method may have some overload on storage)
-// Unlike method `Remove`, You can use `RemoveIndirect` to remove from cache and storage by any keys.
+// Unlike method `Remove`, You can use `RemoveIndirect` to removeByUniqueIdentity from cache and storage by any keys.
 // First, RemoveIndirect call storage.Get() by keys and values arguments, internally, to find uniqueIdentities.
-// And then remove then by uniqueIdentities through the `Remove` method
+// And then removeByUniqueIdentity then by uniqueIdentities through the `Remove` method
 func (c *CacheContainer) RemoveIndirect(m map[string]interface{}) (map[string]int64, error) {
 	if c.isView{
 		return nil, errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.name))
@@ -469,7 +484,7 @@ func (c *CacheContainer) RemoveIndirect(m map[string]interface{}) (map[string]in
 	}
 	if len(uniqueIdentities) > 0 {
 		c.RemoveFromCache(uniqueIdentities...)
-		return c.storage.remove(uniqueIdentities...)
+		return c.storage.remove(keys, values)
 	}else {
 		return map[string]int64{"LastInsertId": 0, "RowsAffected": 0}, nil
 	}
@@ -484,7 +499,7 @@ func (c *CacheContainer) Remove(uniqueIdentities ...interface{}) (map[string]int
 		return nil, errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
 	}
 	c.RemoveFromCache(uniqueIdentities...)
-	return c.storage.remove(uniqueIdentities...)
+	return c.storage.removeByUniqueIdentity(uniqueIdentities...)
 }
 
 // Remove from cache just by uniqueIdentities
@@ -494,6 +509,10 @@ func (c *CacheContainer) RemoveFromCache(uniqueIdentities ...interface{}) {
 		fmt.Println(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
 	}
 	delete(c.items, valStr)
+}
+
+func (c *CacheContainer) GetStatistic()  map[string]map[string]int64{
+	return c.statistic.getStatistic()
 }
 
 type EmbedME struct {
@@ -520,6 +539,7 @@ func (c *EmbedME) IncUpdate() error {
 	c.updates ++
 	c.lastUpdate = time.Now()
 	c.lastAccess = time.Now()
+	c.container.statistic.incStatisticCacheUpdates()
 	if c.updates >= c.container.config.CacheFlushUpdatesLatencyCount {
 		c.container.chanUpdates <- c.parent
 	}
@@ -534,8 +554,11 @@ func (c *EmbedME) UpdateStorage() error{
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	fmt.Println("Let update, updates= ", c.updates)
+	if c.container.config.Log {
+		log.Printf("Let update, updates = %d", c.updates)
+	}
 	c.container.storage.update(c.parent)
+	c.container.statistic.incStatisticStorageUpdates()
 	c.updates = 0
 	return nil
 }
@@ -553,4 +576,109 @@ func (c *EmbedME) ttlReached() bool {
 type cacheIndexEntry struct {
 	values []string
 	lastAccess time.Time
+}
+
+type statisticContainer struct {
+	enabled              bool
+	storage struct{
+		updates int64
+		inserts int64
+		lastUpdates int64
+		lastInserts int64
+	}
+	cache struct{
+		updates int64
+		inserts int64
+		lastUpdates int64
+		lastInserts int64
+	}
+	//statisticCacheUpdates     int64
+	//statisticCacheInserts     int64
+	//lastStatisticCacheUpdates     int64
+	//lastStatisticCacheInserts     int64
+
+	//statisticStorageUpdates     int64
+	//statisticStorageInserts     int64
+	//lastStatisticStorageUpdates int64
+	//lastStatisticStorageInserts int64
+	mu                          sync.RWMutex
+}
+
+func (c *statisticContainer) incStatisticStorageInserts()  {
+	if ! c.enabled{
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.storage.inserts ++
+}
+
+func (c *statisticContainer) incStatisticStorageUpdates()  {
+	if ! c.enabled{
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.storage.updates ++
+}
+
+func (c *statisticContainer) incStatisticCacheInserts()  {
+	if ! c.enabled{
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cache.inserts ++
+}
+
+func (c *statisticContainer) incStatisticCacheUpdates()  {
+	if ! c.enabled{
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cache.updates ++
+}
+
+func (c *statisticContainer) getStatistic()  map[string]map[string]int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	defStorageInserts := c.storage.inserts - c.storage.lastInserts
+	defStorageUpdates := c.storage.updates - c.storage.lastUpdates
+	c.storage.lastInserts = c.storage.inserts
+	c.storage.lastUpdates = c.storage.updates
+
+	defCacheInserts := c.cache.inserts - c.cache.lastInserts
+	defCacheUpdates := c.cache.updates - c.cache.lastUpdates
+	c.cache.lastInserts = c.cache.inserts
+	c.cache.lastUpdates = c.cache.updates
+	var rUpdate int64
+	var rInsert int64
+	if defCacheUpdates > 0 {
+		rUpdate = 100 - ((defStorageUpdates * 100) / defCacheUpdates)
+	}
+	if defCacheInserts > 0 {
+		rInsert = 100 - ((defStorageInserts * 100) / defCacheInserts)
+	}
+
+	m := map[string]map[string]int64{
+		"cache": map[string]int64{
+			"TotalInserts":   c.cache.inserts,
+			"TotalUpdates":   c.cache.updates,
+			"Inserts":     defCacheInserts,
+			"Updates":     defCacheUpdates,
+		},
+		"storage": map[string]int64{
+			"TotalInserts": c.storage.inserts,
+			"TotalUpdates": c.storage.updates,
+			"Inserts":   defStorageInserts,
+			"Updates":   defStorageUpdates,
+		},
+		"Efficiency": map[string]int64{
+			"Update":  rUpdate,
+			"Insert":  rInsert,
+		},
+	}
+	return m
 }

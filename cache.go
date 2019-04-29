@@ -83,6 +83,12 @@ type Config struct {
 	// Maximum time an QueryIndex will remain in cache without any access. Then it will be removed
 	// Default is 10 seconds
 	AccessTTLQueryIndex int
+	// Enable Log
+	// Default is false
+	Log           bool
+	// Enable gathering statistics
+	// Default is false
+	Statistic           bool
 }
 
 const (

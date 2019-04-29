@@ -37,6 +37,7 @@ type mySQL struct {
 	whereUpdateFieldName []string
 	cfg                  ConfigMysql
 	insertManyLimit      int
+	removeManyLimit      int
 }
 
 func newMySQL(tableName string, viewQuery string, cfg ConfigMysql, itemTemplate interface{}) *mySQL {
@@ -48,6 +49,7 @@ func newMySQL(tableName string, viewQuery string, cfg ConfigMysql, itemTemplate 
 	m.itemTemplate = itemTemplate
 	m.parseTemplate()
 	m.insertManyLimit = 1000
+	m.removeManyLimit = 1000
 	return m
 }
 
@@ -379,9 +381,9 @@ func (c *mySQL) insert(args ...interface{}) (map[string]int64, error) {
 	return m, nil
 }
 
-func (c *mySQL) remove(args ...interface{}) (map[string]int64, error) {
+func (c *mySQL) removeByUniqueIdentity(args ...interface{}) (map[string]int64, error) {
 	if c.isView {
-		return nil, errors.New("view does not support remove")
+		return nil, errors.New("view does not support removeByUniqueIdentity")
 	}
 
 	if len(args) == 0 {
@@ -392,13 +394,16 @@ func (c *mySQL) remove(args ...interface{}) (map[string]int64, error) {
 	if len(args) == 1 {
 		q = fmt.Sprintf("DELETE FROM %s WHERE %s = ?;", c.tableName, c.uniqueIdentity)
 	}else{
+		if len(args) > c.removeManyLimit {
+			return nil, errors.New(fmt.Sprintf("unable to removeByUniqueIdentity more than limit %d, got %d", c.insertManyLimit, len(args)))
+		}
 		var a []string
 		for range args{
 			a = append(a, "?")
 		}
 		q = fmt.Sprintf("DELETE FROM %s WHERE %s in (%s);", c.tableName, c.uniqueIdentity, strings.Join(a, ", "))
 	}
-	//fmt.Println(q)
+	fmt.Println(q)
 	//return nil, nil
 	stmt, err := c.mysqlDB.Prepare(q)
 	if err != nil {
@@ -406,6 +411,42 @@ func (c *mySQL) remove(args ...interface{}) (map[string]int64, error) {
 	}
 	defer stmt.Close()
 	res, err := stmt.Exec(args...)
+	if err != nil {
+		panic(err)
+	}
+	m := make(map[string]int64)
+	m["LastInsertId"], _ = res.LastInsertId()
+	m["RowsAffected"], _ = res.RowsAffected()
+	return m, nil
+}
+
+
+func (c *mySQL) remove(keys []string, values[]interface{}) (map[string]int64, error) {
+	if c.isView {
+		return nil, errors.New("view does not support removeByUniqueIdentity")
+	}
+
+	if len(keys) == 0 {
+		return nil, errors.New(fmt.Sprintf("expected at least 1 argument, got %d", len(keys)))
+	}
+
+	whereClause := ""
+	for _, a := range keys {
+		if len(whereClause) > 0 {
+			whereClause = fmt.Sprintf("%s and %s = ?", whereClause, a)
+		} else {
+			whereClause = fmt.Sprintf("%s = ?", a)
+		}
+	}
+	c.checkConnection()
+	q := fmt.Sprintf("DELETE from %s where %s;", c.tableName, whereClause)
+	//fmt.Println(q)
+	stmt, err := c.mysqlDB.Prepare(q)
+	if err != nil {
+		panic(err)
+	}
+	defer stmt.Close()
+	res, err := stmt.Exec(values...)
 	if err != nil {
 		panic(err)
 	}
