@@ -218,7 +218,7 @@ func (c *CacheContainer) workerInserts() {
 		case <-t:
 			if len(c.insertABuffer) > 0 && time.Since(ft).Seconds() > float64(c.config.CacheInsertAsyncLatency) {
 				res, e := c.storage.insert(c.insertABuffer...)
-				c.statistic.incStatisticStorageInserts()
+				go c.statistic.incStorageInserts()
 				if c.config.Log {
 					log.Printf("workerInserts  found %d items. res:%v , error:%s", len(c.insertABuffer), res, e)
 				}
@@ -233,7 +233,7 @@ func (c *CacheContainer) workerInserts() {
 			if (len(c.insertABuffer) >= c.storage.getInsertLimit()) ||
 				(len(c.insertABuffer) > 0 && time.Since(ft).Seconds() > float64(c.config.CacheInsertAsyncLatency)) {
 				res, e := c.storage.insert(c.insertABuffer...)
-				c.statistic.incStatisticStorageInserts()
+				go c.statistic.incStorageInserts()
 				if c.config.Log {
 					log.Printf("workerInserts found %d items. res:%v , error:%s", len(c.insertABuffer), res, e)
 				}
@@ -405,9 +405,11 @@ func (c *CacheContainer) Get(m map[string]interface{}) ([]interface{}, error) {
 	idxQueryValue := c.getValueStr(values...)
 
 	if res, ok := c.findInCache(idxQueryName, idxQueryValue); ok{
+		go c.statistic.incCacheSelect()
 		return res, nil
 	}
 	res, e := c.storage.get(keys, values)
+	go c.statistic.incStorageSelect()
 	if e == nil && len(res) > 0{
 		return c.normalizeAndSaveInCache(idxQueryName, idxQueryValue, res)
 	}
@@ -422,9 +424,11 @@ func (c *CacheContainer) GetBySquirrel(squirrelArgs ...interface{}) ([]interface
 	idxQueryName := c.getIndexQuery(squirrelArgs[0].(string))
 	idxQueryValue := c.getValueStr(squirrelArgs[1].([]interface{})...)
 	if res, ok := c.findInCache(idxQueryName, idxQueryValue); ok{
+		go c.statistic.incCacheSelect()
 		return res, nil
 	}
 	res, e := c.storage.getBySquirrel(squirrelArgs...)
+	go c.statistic.incStorageSelect()
 	if e == nil && len(res) > 0{
 		return c.normalizeAndSaveInCache(idxQueryName, idxQueryValue, res)
 	}
@@ -439,8 +443,8 @@ func (c *CacheContainer) Insert(in ...interface{}) (map[string]int64, error) {
 	if c.lockUpdate {
 		return nil, errors.New(fmt.Sprintf("Updates are locked in container of '%s', Please try later", c.name))
 	}
-	c.statistic.incStatisticStorageInserts()
-	c.statistic.incStatisticCacheInserts()
+	go c.statistic.incStorageInserts()
+	go c.statistic.incCacheInserts()
 	return c.storage.insert(in...)
 }
 
@@ -450,7 +454,7 @@ func (c *CacheContainer) InsertAsync(in ...interface{}) error {
 		return errors.New(fmt.Sprintf("container of '%s' is view and views are read only, so there isn't permission for any write actions", c.name))
 	}
 	go c.addToChanInserts(in)
-	c.statistic.incStatisticCacheInserts()
+	go c.statistic.incCacheInserts()
 	return nil
 }
 
@@ -511,7 +515,7 @@ func (c *CacheContainer) RemoveFromCache(uniqueIdentities ...interface{}) {
 	delete(c.items, valStr)
 }
 
-func (c *CacheContainer) GetStatistic()  map[string]map[string]int64{
+func (c *CacheContainer) GetStatistic()  map[string]map[string]interface{}{
 	return c.statistic.getStatistic()
 }
 
@@ -539,7 +543,7 @@ func (c *EmbedME) IncUpdate() error {
 	c.updates ++
 	c.lastUpdate = time.Now()
 	c.lastAccess = time.Now()
-	c.container.statistic.incStatisticCacheUpdates()
+	go c.container.statistic.incCacheUpdates()
 	if c.updates >= c.container.config.CacheFlushUpdatesLatencyCount {
 		c.container.chanUpdates <- c.parent
 	}
@@ -558,7 +562,7 @@ func (c *EmbedME) UpdateStorage() error{
 		log.Printf("Let update, updates = %d", c.updates)
 	}
 	c.container.storage.update(c.parent)
-	c.container.statistic.incStatisticStorageUpdates()
+	go c.container.statistic.incStorageUpdates()
 	c.updates = 0
 	return nil
 }
@@ -576,109 +580,4 @@ func (c *EmbedME) ttlReached() bool {
 type cacheIndexEntry struct {
 	values []string
 	lastAccess time.Time
-}
-
-type statisticContainer struct {
-	enabled              bool
-	storage struct{
-		updates int64
-		inserts int64
-		lastUpdates int64
-		lastInserts int64
-	}
-	cache struct{
-		updates int64
-		inserts int64
-		lastUpdates int64
-		lastInserts int64
-	}
-	//statisticCacheUpdates     int64
-	//statisticCacheInserts     int64
-	//lastStatisticCacheUpdates     int64
-	//lastStatisticCacheInserts     int64
-
-	//statisticStorageUpdates     int64
-	//statisticStorageInserts     int64
-	//lastStatisticStorageUpdates int64
-	//lastStatisticStorageInserts int64
-	mu                          sync.RWMutex
-}
-
-func (c *statisticContainer) incStatisticStorageInserts()  {
-	if ! c.enabled{
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.storage.inserts ++
-}
-
-func (c *statisticContainer) incStatisticStorageUpdates()  {
-	if ! c.enabled{
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.storage.updates ++
-}
-
-func (c *statisticContainer) incStatisticCacheInserts()  {
-	if ! c.enabled{
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.cache.inserts ++
-}
-
-func (c *statisticContainer) incStatisticCacheUpdates()  {
-	if ! c.enabled{
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.cache.updates ++
-}
-
-func (c *statisticContainer) getStatistic()  map[string]map[string]int64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	defStorageInserts := c.storage.inserts - c.storage.lastInserts
-	defStorageUpdates := c.storage.updates - c.storage.lastUpdates
-	c.storage.lastInserts = c.storage.inserts
-	c.storage.lastUpdates = c.storage.updates
-
-	defCacheInserts := c.cache.inserts - c.cache.lastInserts
-	defCacheUpdates := c.cache.updates - c.cache.lastUpdates
-	c.cache.lastInserts = c.cache.inserts
-	c.cache.lastUpdates = c.cache.updates
-	var rUpdate int64
-	var rInsert int64
-	if defCacheUpdates > 0 {
-		rUpdate = 100 - ((defStorageUpdates * 100) / defCacheUpdates)
-	}
-	if defCacheInserts > 0 {
-		rInsert = 100 - ((defStorageInserts * 100) / defCacheInserts)
-	}
-
-	m := map[string]map[string]int64{
-		"cache": map[string]int64{
-			"TotalInserts":   c.cache.inserts,
-			"TotalUpdates":   c.cache.updates,
-			"Inserts":     defCacheInserts,
-			"Updates":     defCacheUpdates,
-		},
-		"storage": map[string]int64{
-			"TotalInserts": c.storage.inserts,
-			"TotalUpdates": c.storage.updates,
-			"Inserts":   defStorageInserts,
-			"Updates":   defStorageUpdates,
-		},
-		"Efficiency": map[string]int64{
-			"Update":  rUpdate,
-			"Insert":  rInsert,
-		},
-	}
-	return m
 }
