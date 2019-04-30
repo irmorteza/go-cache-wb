@@ -2,6 +2,7 @@ package cachewb
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"testing"
 	"time"
@@ -9,7 +10,7 @@ import (
 
 var cfg = Config{
 	IntervalWorkerMaintainer:      2,
-	CacheFlushUpdatesLatencyCount: 100,
+	CacheFlushUpdatesLatencyCount: 10,
 	CacheFlushUpdatesLatencyTime:  10,
 	Log:                           false,
 	Statistic:true,
@@ -53,24 +54,69 @@ func printStatistic(cc * CacheContainer)  {
 	//defer func() {
 	//	fmt.Println(fmt.Sprintf("-----------------------------------------------------------------------------------------------------------------------"))
 	//}()
-	fmt.Println(fmt.Sprintf("____________________________________________________________________________________________________________________________"))
-	fmt.Println(fmt.Sprintf("Cache |%-12s %-12s %-8s %-8s | Storage %-12s %-12s %-8s %-8s | %-8s %-8s|", "TotalInsert", "TolalUpdate", "Insert", "Update", "TotalInsert", "TolalUpdate", "Insert", "Update", "eUpdate", "eInsert"))
-	fmt.Println(fmt.Sprintf("------|--------------------------------------------|-----------------------------------------------------|------------------|"))
+	fmt.Println(fmt.Sprintf("____________________________________________________________________________________________________"))
+	fmt.Println(fmt.Sprintf("      |        Cache              |       Storage              |       Performance                  |"))
+	fmt.Println(fmt.Sprintf("------|---------------------------|----------------------------|------------------------------------|"))
+	fmt.Println(fmt.Sprintf("------|%-8s %-8s %-8s | %-8s %-8s %-8s | %-8s %-8s %-8s %-8s|", "Select%", "Update%", "Insert%", "Select", "Update", "Insert", "Select", "Update", "Insert", "UPI"))
+	fmt.Println(fmt.Sprintf("------|---------------------------|----------------------------|------------------------------------|"))
+	var f int64
 	for true {
-		time.Sleep(time.Second * 1)
 		r := cc.GetStatistic()
-		fmt.Println(fmt.Sprintf("      |%-12d %-12d %-8d %-8d |         %-12d %-12d %-8d %-8d | %-8s %-8s|",
-			r["cache"]["TotalInserts"],
-			r["cache"]["TotalUpdates"],
-			r["cache"]["Inserts"],
+		fmt.Println(fmt.Sprintf("------|%-8d %-8d %-8d | %-8d %-8d %-8d | %-8s %-8s %-8s %-8s|",
+			r["cache"]["Selects"],
 			r["cache"]["Updates"],
-			r["storage"]["TotalInserts"],
-			r["storage"]["TotalUpdates"],
-			r["storage"]["Inserts"],
+			r["cache"]["Inserts"],
+			r["storage"]["Selects"],
 			r["storage"]["Updates"],
-			fmt.Sprintf("%d%%",r["Efficiency"]["Update"]),
-			fmt.Sprintf("%d%%",r["Efficiency"]["Insert"])))
+			r["storage"]["Inserts"],
+			r["Efficiency"]["Select"],
+			r["Efficiency"]["Update"],
+			r["Efficiency"]["Insert"],
+			r["Efficiency"]["UPI"],
+		))
+
+		if f > 0 && math.Mod(float64(f),10) == 0{
+			fmt.Println(fmt.Sprintf("------|---------------------------|----------------------------|------------------------------------|"))
+			fmt.Println(fmt.Sprintf("Total |%-8d %-8d %-8d | %-8d %-8d %-8d | %-8s %-8s %-8s %-8s|",
+				r["cache"]["TotalSelects"],
+				r["cache"]["TotalUpdates"],
+				r["cache"]["TotalInserts"],
+				r["storage"]["TotalSelects"],
+				r["storage"]["TotalUpdates"],
+				r["storage"]["TotalInserts"],
+				r["Efficiency"]["TotalSelect"],
+				r["Efficiency"]["TotalUpdate"],
+				r["Efficiency"]["TotalInsert"],
+				r["Efficiency"]["TotalUPI"],
+			))
+			fmt.Println(fmt.Sprintf("------|---------------------------|----------------------------|------------------------------------|"))
+			fmt.Println(fmt.Sprintf("------|%-8s %-8s %-8s | %-8s %-8s %-8s | %-8s %-8s %-8s %-8s|", "Select", "Update", "Insert", "Select", "Update", "Insert", "Select", "Update", "Insert", "UPI"))
+			fmt.Println(fmt.Sprintf("------|---------------------------|----------------------------|------------------------------------|"))
+		}
+		f++
+		time.Sleep(time.Second * 1)
+
 	}
+	//fmt.Println(fmt.Sprintf("______________________________________________________________________________________________________________________________________________"))
+	//fmt.Println(fmt.Sprintf("Cache |%-12s %-12s %-8s %-8s %-8s | Storage %-12s %-12s %-8s %-8s %-8s | %-8s %-8s|", "TotalInsert", "TolalUpdate", "Select", "Insert", "Update", "TotalInsert", "TolalUpdate", "Select", "Insert", "Update", "eUpdate", "eInsert"))
+	//fmt.Println(fmt.Sprintf("------|-----------------------------------------------------|--------------------------------------------------------------|------------------|"))
+	//for true {
+	//	time.Sleep(time.Second * 1)
+	//	r := cc.GetStatistic()
+	//	fmt.Println(fmt.Sprintf("      |%-12d %-12d %-8d %-8d %-8d |         %-12d %-12d %-8d %-8d %-8d | %-8s %-8s|",
+	//		r["cache"]["TotalInserts"],
+	//		r["cache"]["TotalUpdates"],
+	//		r["cache"]["Selects"],
+	//		r["cache"]["Inserts"],
+	//		r["cache"]["Updates"],
+	//		r["storage"]["TotalInserts"],
+	//		r["storage"]["TotalUpdates"],
+	//		r["storage"]["Selects"],
+	//		r["storage"]["Inserts"],
+	//		r["storage"]["Updates"],
+	//		fmt.Sprintf("%d%%",r["Efficiency"]["Update"]),
+	//		fmt.Sprintf("%d%%",r["Efficiency"]["Insert"])))
+	//}
 }
 
 func TestCRUD(t *testing.T)  {
@@ -137,7 +183,6 @@ func TestCRUD(t *testing.T)  {
 }
 
 func TestPerformance(t *testing.T) {
-
 	cwb := NewCacheWB()
 	c := cwb.GetContainer("members", cfg, Members{})
 	// Preparing database for test. removeByUniqueIdentity old data
@@ -171,7 +216,7 @@ func TestPerformance(t *testing.T) {
 			tAfter := time.After(time.Millisecond * 1)
 			select {
 			case <-tAfter:
-				name := fmt.Sprintf("Jack%d", rand.Intn(Num))
+				name := fmt.Sprintf("Jack%d", rand.Intn(1000))
 				r, _ := c.Get(map[string]interface{}{"name": name})
 				r[0].(*Members).AddCredit(1)
 				updatedCredit += 1
