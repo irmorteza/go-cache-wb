@@ -13,7 +13,7 @@ var cfg = Config{
 	CacheFlushUpdatesLatencyCount: 10,
 	CacheFlushUpdatesLatencyTime:  10,
 	Log:                           false,
-	Statistic:true,
+	Statistic:                     true,
 	AccessTTLItems:                10,
 	StorageName:                   MYSQL,
 	Database: ConfigMysql{
@@ -183,6 +183,7 @@ func TestCRUD(t *testing.T)  {
 }
 
 func TestPerformance(t *testing.T) {
+	t.Skip("Skipping")
 	cwb := NewCacheWB()
 	c := cwb.GetContainer("members", cfg, Members{})
 	// Preparing database for test. removeByUniqueIdentity old data

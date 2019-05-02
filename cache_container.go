@@ -12,21 +12,23 @@ import (
 )
 
 type CacheContainer struct {
-	storage        storage
-	config         Config
-	name           string
-	uniqueIdentity string
-	lockUpdate     bool
-	isView         bool
-	itemType       interface{}
-	items          map[interface{}]interface{}
-	queryIndex     map[string]map[string]*cacheIndexEntry
-	chanUpdates    chan interface{}
-	chanInserts    chan interface{}
-	insertABuffer  []interface{}
-	statistic      statisticContainer
-	mu             sync.RWMutex
-	muIndex        sync.RWMutex
+	storage             storage
+	config              Config
+	name                string
+	uniqueIdentity      string
+	lockUpdate          bool
+	isView              bool
+	itemType            interface{}
+	items               map[interface{}]interface{}
+	queryIndex          map[string]map[string]*cacheIndexEntry
+	chanUpdates         chan interface{}
+	chanUpdates2222222  chan interface{}
+	chanInserts         chan interface{}
+	insertABuffer       []interface{}
+	updateABuffer222222 []interface{}
+	statistic           statisticContainer
+	mu                  sync.RWMutex
+	muIndex             sync.RWMutex
 }
 
 func newContainer(containerName string, cfg Config, containerType interface{}) *CacheContainer {

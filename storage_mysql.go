@@ -343,6 +343,8 @@ func (c *mySQL) update(in interface{}) (map[string]int64, error) {
 	return m, nil
 }
 
+// args is array of items
+// It able insert to support single and multi insert together
 func (c *mySQL) insert(args ...interface{}) (map[string]int64, error) {
 	if c.isView {
 		return nil, errors.New("view does not support insert")
@@ -420,7 +422,6 @@ func (c *mySQL) removeByUniqueIdentity(args ...interface{}) (map[string]int64, e
 	return m, nil
 }
 
-
 func (c *mySQL) remove(keys []string, values[]interface{}) (map[string]int64, error) {
 	if c.isView {
 		return nil, errors.New("view does not support removeByUniqueIdentity")
@@ -456,3 +457,62 @@ func (c *mySQL) remove(keys []string, values[]interface{}) (map[string]int64, er
 	return m, nil
 }
 
+//func (c *mySQL) updateBatch(args ...interface{}) (map[string]int64, error) {
+//	if c.isView {
+//		return nil, errors.New("view does not support update")
+//	}
+//	if len(args) > 10 {
+//		return nil, errors.New(fmt.Sprintf("unable to update more than limit %d, got %d", 10, len(args)))
+//	}
+//	valuePtrs := make([]interface{}, 0)
+//	myId := "id"
+//	var ararar  []string
+//	for _, n := range c.updateQueryFields {
+//		if n != "Id" { // todo
+//			aaaa := fmt.Sprintf("%s = CASE %s ", c.fieldsMapNameToTag[n], myId)
+//			for range args {
+//				aaaa = fmt.Sprintf("%s WHEN ? THEN ? ", aaaa)
+//			}
+//			aaaa = fmt.Sprintf("%s END", aaaa)
+//			ararar = append(ararar, aaaa)
+//			for _, item := range args {
+//				elem := reflect.ValueOf(item).Elem()
+//				zz := elem.FieldByName("Id")
+//				if zz.IsValid() {
+//					valuePtrs = append(valuePtrs, zz.Interface())
+//				}
+//				zz = elem.FieldByName(n)
+//				if zz.IsValid() {
+//					valuePtrs = append(valuePtrs, zz.Interface())
+//				}
+//			}
+//		}
+//	}
+//
+//	var ararar2  []string
+//	for _, item := range args {
+//		elem := reflect.ValueOf(item).Elem()
+//		zz := elem.FieldByName("Id")
+//		if zz.IsValid() {
+//			valuePtrs = append(valuePtrs, zz.Interface())
+//		}
+//		ararar2 = append(ararar2, "?")
+//	}
+//
+//	qqq := fmt.Sprintf("Update members set %s where %s in (%s)", strings.Join(ararar, ", "), myId, strings.Join(ararar2, ", "))
+//	//fmt.Println(qqq)
+//	c.checkConnection()
+//	stmt, err := c.mysqlDB.Prepare(qqq)
+//	if err != nil {
+//		panic(err)
+//	}
+//	defer stmt.Close()
+//	res, err := stmt.Exec(valuePtrs...)
+//	if err != nil {
+//		panic(err)
+//	}
+//	m := make(map[string]int64)
+//	m["LastInsertId"], _ = res.LastInsertId()
+//	m["RowsAffected"], _ = res.RowsAffected()
+//	return m, nil
+//}
